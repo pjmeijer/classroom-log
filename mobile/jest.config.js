@@ -1,0 +1,8 @@
+module.exports = {
+  preset: 'jest-expo',
+  transformIgnorePatterns: [
+    'node_modules/(?!((jest-)?react-native|@react-native|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|expo-router|expo-sqlite|expo-audio))',
+  ],
+  testMatch: ['**/__tests__/**/*.test.ts', '**/__tests__/**/*.test.tsx'],
+  collectCoverageFrom: ['**/*.{ts,tsx}', '!**/node_modules/**', '!**/babel.config.js', '!**/jest.config.js'],
+};
