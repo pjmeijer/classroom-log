@@ -26,6 +26,9 @@ Thumbs.db
 # gstack scratch (codex prompts, design mockups, etc.)
 .gstack/
 
+# Claude Code internals (worktrees, transcripts)
+.claude/
+
 # Expo / EAS
 .expo-shared/
 *.tsbuildinfo
