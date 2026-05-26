@@ -37,7 +37,6 @@
       ],
       "expo-sqlite",
       "expo-audio",
-      "expo-status-bar",
       "expo-font"
     ],
     "experiments": {

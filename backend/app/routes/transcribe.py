@@ -6,15 +6,30 @@ from app.errors import err
 
 router = APIRouter()
 
+MAX_AUDIO_BYTES = 25 * 1024 * 1024  # 25 MB — Whisper's documented per-file cap
+
 
 @router.post("/transcribe")
 async def transcribe(audio: UploadFile = File(...)):
     try:
-        audio_bytes = await audio.read()
+        # Stream into memory but cap at MAX_AUDIO_BYTES so a runaway upload
+        # can't OOM the proxy. Audio is never written to disk.
+        audio_bytes = bytearray()
+        while True:
+            chunk = await audio.read(64 * 1024)
+            if not chunk:
+                break
+            audio_bytes.extend(chunk)
+            if len(audio_bytes) > MAX_AUDIO_BYTES:
+                raise err(
+                    "audio_too_large",
+                    f"Audio payload exceeds {MAX_AUDIO_BYTES // (1024 * 1024)}MB limit.",
+                    status=413,
+                )
         if not audio_bytes:
             raise err("empty_audio", "Audio payload was empty.", status=400)
         try:
-            text = await transcribe_audio(audio_bytes, audio.filename or "audio.m4a")
+            text = await transcribe_audio(bytes(audio_bytes), audio.filename or "audio.m4a")
         except HTTPException:
             # Already an enveloped error; let it propagate untouched.
             raise

@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.exceptions import HTTPException
+from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.routes.health import router as health_router
@@ -16,6 +16,20 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": {"code": "http_error", "message": str(exc.detail)}},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # Map FastAPI/Pydantic validation errors into our envelope shape so the
+    # mobile client's discriminated union doesn't need a special case.
+    errors = exc.errors()
+    first = errors[0] if errors else {"msg": "Invalid request"}
+    loc = ".".join(str(p) for p in first.get("loc", []))
+    message = f"{loc}: {first.get('msg', 'Invalid')}" if loc else first.get("msg", "Invalid")
+    return JSONResponse(
+        status_code=422,
+        content={"error": {"code": "validation_error", "message": message}},
     )
 
 
