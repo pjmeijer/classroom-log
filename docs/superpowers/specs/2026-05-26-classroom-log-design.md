@@ -111,8 +111,9 @@ classroom-log/
 - Multiline text input, auto-focused, always editable.
 - Mic FAB: tap to start STT, tap again to stop. Interim STT results write to
   the input (debounced 100 ms); final results append at the cursor.
-- Editing during recording is allowed — when the user types, STT continues
-  appending below their edits (no interleaving).
+- Editing during recording is allowed. When the user types, STT continues
+  appending to the *end* of the text field (not at the user's cursor), so
+  voice and keyboard streams never interleave mid-sentence.
 - Save button writes the note row and closes the modal. On modal close with
   non-empty text, auto-save (no silent discards).
 - Edit mode (existing `noteId` param): same UI; Save becomes Update; a
@@ -184,8 +185,8 @@ CREATE TABLE notes (
   id              TEXT PRIMARY KEY,            -- uuid v4
   student_id      TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
   text            TEXT NOT NULL,
-  created_at      INTEGER NOT NULL,            -- unix ms
-  updated_at      INTEGER NOT NULL
+  created_at      INTEGER NOT NULL,            -- unix ms, set on insert
+  updated_at      INTEGER NOT NULL             -- unix ms, equals created_at on insert
 );
 
 CREATE INDEX idx_notes_student_created ON notes(student_id, created_at);
@@ -232,7 +233,7 @@ prompt → returns four sections → screen renders.
 | Note save with empty text | Modal closes silently. No row written. |
 | Backgrounded mid-recording | STT auto-stops, flushes final result into the text field, modal stays open. |
 | FastAPI unreachable | Summary screen falls back to raw chronological view. Banner: "AI summary unavailable — tunnel down?" with retry. |
-| Claude API 4xx/5xx | Typed error from FastAPI; screen shows "Try again" + the error code. Previous summary stays rendered if any. |
+| Claude API 4xx/5xx | Typed error from FastAPI; screen shows "Try again" + the error code. If a previous summary was already on screen, it stays rendered; on a cold first attempt, the section area shows an inline error state. |
 | Claude returns malformed JSON | FastAPI retries once with stricter system reminder; if it fails again, returns error. |
 | Empty roster | Home shows empty state with "Add your first student" → Settings. |
 | Empty notes for selected day | Summary disables Generate, shows "No notes for this day yet." |
@@ -244,9 +245,10 @@ online-during-demo is the explicit assumption.
 
 ## 8. Testing
 
-**Unit (`mobile/`, Jest):**
-- `db/db.ts` — every exported function against an in-memory SQLite (`better-sqlite3`
-  in Node test env). Schema migration tested.
+**Unit (`mobile/`, Jest with `jest-expo` preset):**
+- `db/db.ts` — every exported function against `expo-sqlite` running in the
+  `jest-expo` Node environment (which polyfills the native module). Schema
+  migration tested.
 - `lib/stt.ts` — mocks `expo-speech-recognition`; verifies wrapper emits the
   expected interim/final events and surfaces permission errors.
 - `api/summary.ts` — mocks `fetch`; verifies request shape and response
