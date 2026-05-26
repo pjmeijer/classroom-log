@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 
 from app.routes.health import router as health_router
 # from app.routes.summary import router as summary_router  # T2 will uncomment
-# from app.routes.transcribe import router as transcribe_router  # T3 will uncomment
+from app.routes.transcribe import router as transcribe_router  # T3 will uncomment
 
 app = FastAPI(title="classroom-log proxy", version="0.1.0")
 
@@ -21,4 +21,4 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 app.include_router(health_router)
 # app.include_router(summary_router)  # T2 will uncomment
-# app.include_router(transcribe_router)  # T3 will uncomment
+app.include_router(transcribe_router)  # T3 will uncomment
