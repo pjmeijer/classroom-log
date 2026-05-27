@@ -7,8 +7,7 @@ import { listActiveStudents, addStudent, archiveStudent, setStudentVoiceAllowed,
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors, fonts, spacing, radii, shadows } from '../lib/theme';
 import Constants from 'expo-constants';
-
-const DEFAULT_API = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://example.ngrok.app';
+import { DEFAULT_API_BASE_URL } from '../api/config';
 
 export default function Settings() {
   const db = useSQLiteContext();
@@ -21,7 +20,7 @@ export default function Settings() {
 
   const reload = useCallback(async () => {
     setStudents(await listActiveStudents(db));
-    setApiUrl((await getSetting(db, 'api_base_url')) || DEFAULT_API);
+    setApiUrl((await getSetting(db, 'api_base_url')) || DEFAULT_API_BASE_URL);
     setLlmEnabled((await getSetting(db, 'llm_enabled')) !== '0');
   }, [db]);
 
@@ -88,7 +87,12 @@ export default function Settings() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl * 2 }}>
-        <Pressable onPress={() => router.back()} style={{ marginBottom: spacing.md }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to home"
+          onPress={() => router.back()}
+          style={{ marginBottom: spacing.md }}
+        >
           <Text style={{ fontFamily: fonts.body, color: colors.accent }}>← Back</Text>
         </Pressable>
         <Text style={styles.h1}>Settings</Text>
@@ -116,7 +120,12 @@ export default function Settings() {
               value={s.recording_enabled === 1}
               onValueChange={async (v) => { await setStudentVoiceAllowed(db, s.id, v); reload(); }}
             />
-            <Pressable onPress={() => confirmArchive(s)} style={styles.archiveBtn}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Archive student ${s.name}`}
+              onPress={() => confirmArchive(s)}
+              style={styles.archiveBtn}
+            >
               <Text style={{ color: colors.danger, fontFamily: fonts.body }}>Archive</Text>
             </Pressable>
           </View>

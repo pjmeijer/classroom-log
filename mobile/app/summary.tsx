@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { listActiveStudents, getNotesForStudentInLocalRange, getSetting, Student } from '../db/db';
 import { fetchSummary, SummarySections } from '../api/summary';
+import { DEFAULT_API_BASE_URL } from '../api/config';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors, fonts, spacing, radii, shadows } from '../lib/theme';
 import { localYmd } from '../lib/dates';
@@ -28,10 +29,17 @@ export default function Summary() {
       const list = await listActiveStudents(db);
       setStudents(list);
       setStudentId(list[0]?.id ?? null);
-      setApiUrl((await getSetting(db, 'api_base_url')) || '');
+      setApiUrl((await getSetting(db, 'api_base_url')) || DEFAULT_API_BASE_URL);
       setLlmEnabled((await getSetting(db, 'llm_enabled')) !== '0');
     })();
   }, [db]);
+
+  function selectStudent(id: string) {
+    setSections(null);
+    setRawNotes('');
+    setErrorMsg(null);
+    setStudentId(id);
+  }
 
   async function generate() {
     if (!studentId) return;
@@ -68,7 +76,12 @@ export default function Summary() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl * 2 }}>
-        <Pressable onPress={() => router.back()} style={{ marginBottom: spacing.md }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to home"
+          onPress={() => router.back()}
+          style={{ marginBottom: spacing.md }}
+        >
           <Text style={{ fontFamily: fonts.body, color: colors.accent }}>← Back</Text>
         </Pressable>
         <Text style={styles.h1}>Draft summary</Text>
@@ -78,7 +91,14 @@ export default function Summary() {
             <Text style={styles.pickerLabel}>Student</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {students.map(s => (
-                <Pressable key={s.id} onPress={() => setStudentId(s.id)} style={[styles.chip, studentId === s.id && styles.chipOn]}>
+                <Pressable
+                  key={s.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select student ${s.name}`}
+                  accessibilityState={{ selected: studentId === s.id }}
+                  onPress={() => selectStudent(s.id)}
+                  style={[styles.chip, studentId === s.id && styles.chipOn]}
+                >
                   <Text style={[styles.chipLabel, studentId === s.id && styles.chipLabelOn]}>{s.name}</Text>
                 </Pressable>
               ))}

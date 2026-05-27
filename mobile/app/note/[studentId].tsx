@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Alert } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { addNote, updateNote, deleteNote, getNote, listActiveStudents, getSetting, Student } from '../../db/db';
@@ -12,12 +12,14 @@ const MAX_LEN = 5000;
 export default function NoteModal() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const navigation = useNavigation();
   const { studentId, noteId } = useLocalSearchParams<{ studentId: string; noteId?: string }>();
   const [student, setStudent] = useState<Student | null>(null);
   const [voiceOn, setVoiceOn] = useState(true);
   const [text, setText] = useState('');
   const [initialText, setInitialText] = useState('');
   const [discardVisible, setDiscardVisible] = useState(false);
+  const pendingActionRef = useRef<unknown>(null);
 
   useEffect(() => {
     (async () => {
@@ -37,22 +39,47 @@ export default function NoteModal() {
 
   const dirty = text !== initialText;
   const editing = !!noteId;
+  const allowLeaveRef = useRef(false);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e: any) => {
+      if (!dirty || allowLeaveRef.current) return;
+      e.preventDefault();
+      pendingActionRef.current = e.data.action;
+      setDiscardVisible(true);
+    });
+    return unsubscribe;
+  }, [navigation, dirty]);
+
+  function dispatchPending() {
+    allowLeaveRef.current = true;
+    const action = pendingActionRef.current;
+    pendingActionRef.current = null;
+    if (action) {
+      navigation.dispatch(action as any);
+    } else {
+      router.back();
+    }
+  }
 
   function handleClose() {
-    if (dirty && text.trim()) setDiscardVisible(true);
-    else router.back();
+    if (dirty) setDiscardVisible(true);
+    else {
+      allowLeaveRef.current = true;
+      router.back();
+    }
   }
 
   async function handleSave() {
     if (!text.trim()) return;
     if (noteId) await updateNote(db, noteId, text);
     else if (student) await addNote(db, { studentId: student.id, text });
-    router.back();
+    dispatchPending();
   }
 
   function handleDiscard() {
     setDiscardVisible(false);
-    router.back();
+    dispatchPending();
   }
 
   async function handleDelete() {
@@ -61,7 +88,7 @@ export default function NoteModal() {
       'This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: async () => { if (noteId) { await deleteNote(db, noteId); router.back(); } } },
+        { text: 'Delete', style: 'destructive', onPress: async () => { if (noteId) { await deleteNote(db, noteId); allowLeaveRef.current = true; router.back(); } } },
       ],
     );
   }
@@ -81,7 +108,11 @@ export default function NoteModal() {
           >
             <Text style={{ fontSize: 14 }}>🎙</Text>
           </Pressable>
-          <Pressable accessibilityRole="button" onPress={handleClose}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close note"
+            onPress={handleClose}
+          >
             <Text style={styles.x}>✕</Text>
           </Pressable>
         </View>
@@ -121,7 +152,13 @@ export default function NoteModal() {
       </View>
 
       {editing && (
-        <Pressable onLongPress={handleDelete} delayLongPress={800} style={styles.deleteBtn}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Hold to delete this note"
+          onLongPress={handleDelete}
+          delayLongPress={800}
+          style={styles.deleteBtn}
+        >
           <Text style={styles.deleteLabel}>Hold to delete</Text>
         </Pressable>
       )}
