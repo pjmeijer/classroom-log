@@ -1,5 +1,20 @@
 import * as SQLite from 'expo-sqlite';
-import { initDb, listActiveStudents, addStudent, archiveStudent, setStudentVoiceAllowed } from '../db';
+import {
+  initDb,
+  listActiveStudents,
+  addStudent,
+  archiveStudent,
+  setStudentVoiceAllowed,
+  addNote,
+  getNote,
+  updateNote,
+  deleteNote,
+  moveNote,
+  getNotesForLocalDate,
+  getNotesForStudentInLocalRange,
+  getSetting,
+  setSetting,
+} from '../db';
 import { migrate } from '../migrations';
 
 let db: SQLite.SQLiteDatabase;
@@ -23,6 +38,7 @@ describe('students', () => {
 
   it('archives a student without deleting their notes', async () => {
     const { id } = await addStudent(db, { name: 'Sam R.' });
+    const { id: nid } = await addNote(db, { studentId: id, text: 'note that must survive' });
     await archiveStudent(db, id);
     const rows = await listActiveStudents(db);
     expect(rows).toEqual([]);
@@ -30,6 +46,9 @@ describe('students', () => {
     const all = await db.getAllAsync<{ id: string; archived_at: number | null }>('SELECT id, archived_at FROM students');
     expect(all.length).toBe(1);
     expect(all[0].archived_at).not.toBeNull();
+    // Note is retained — archive must NOT cascade-delete it
+    const survivingNote = await getNote(db, nid);
+    expect(survivingNote?.text).toBe('note that must survive');
   });
 
   it('toggles per-student voice allowed', async () => {
@@ -42,6 +61,99 @@ describe('students', () => {
   it('enforces PRAGMA foreign_keys on every connection', async () => {
     const r = await db.getFirstAsync<{ foreign_keys: number }>('PRAGMA foreign_keys');
     expect(r?.foreign_keys).toBe(1);
+  });
+});
+
+describe('notes', () => {
+  it('inserts a note and retrieves it', async () => {
+    const { id: sid } = await addStudent(db, { name: 'Alex' });
+    const { id: nid } = await addNote(db, { studentId: sid, text: 'Morning was focused.' });
+    const got = await getNote(db, nid);
+    expect(got?.text).toBe('Morning was focused.');
+    expect(got?.student_id).toBe(sid);
+    expect(got?.created_at).toBe(got?.updated_at);
+  });
+
+  it('updates a note and bumps updated_at', async () => {
+    const { id: sid } = await addStudent(db, { name: 'Alex' });
+    const { id: nid } = await addNote(db, { studentId: sid, text: 'first' });
+    const before = await getNote(db, nid);
+    await new Promise(r => setTimeout(r, 5));
+    await updateNote(db, nid, 'second');
+    const after = await getNote(db, nid);
+    expect(after?.text).toBe('second');
+    expect(after!.updated_at).toBeGreaterThan(before!.updated_at);
+    expect(after!.created_at).toBe(before!.created_at);
+  });
+
+  it('deletes a note', async () => {
+    const { id: sid } = await addStudent(db, { name: 'Alex' });
+    const { id: nid } = await addNote(db, { studentId: sid, text: 'gone' });
+    await deleteNote(db, nid);
+    expect(await getNote(db, nid)).toBeNull();
+  });
+
+  it('moves a note between students', async () => {
+    const { id: sid1 } = await addStudent(db, { name: 'Alex' });
+    const { id: sid2 } = await addStudent(db, { name: 'Casey' });
+    const { id: nid } = await addNote(db, { studentId: sid1, text: 'mis-tap' });
+    await moveNote(db, nid, sid2);
+    const got = await getNote(db, nid);
+    expect(got?.student_id).toBe(sid2);
+  });
+
+  it("lists today's notes for a date in local time", async () => {
+    const { id: sid } = await addStudent(db, { name: 'Alex' });
+    await addNote(db, { studentId: sid, text: 'today' });
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const d = String(today.getDate()).padStart(2, '0');
+    const ymd = `${y}${m}${d}`;
+    const rows = await getNotesForLocalDate(db, ymd);
+    expect(rows.length).toBe(1);
+    expect(rows[0].text).toBe('today');
+    expect(rows[0].student_name).toBe('Alex');
+  });
+
+  it('lists notes for a student in a local date range', async () => {
+    const { id: sid } = await addStudent(db, { name: 'Alex' });
+    await addNote(db, { studentId: sid, text: 'in range' });
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const d = String(today.getDate()).padStart(2, '0');
+    const ymd = `${y}${m}${d}`;
+    const rows = await getNotesForStudentInLocalRange(db, sid, ymd, ymd);
+    expect(rows.length).toBe(1);
+    expect(rows[0].text).toBe('in range');
+  });
+
+  it('refuses to delete a student that has notes (RESTRICT)', async () => {
+    const { id: sid } = await addStudent(db, { name: 'Alex' });
+    await addNote(db, { studentId: sid, text: 'note' });
+    await expect(
+      db.runAsync('DELETE FROM students WHERE id = ?', sid)
+    ).rejects.toThrow();
+  });
+});
+
+describe('settings', () => {
+  it('returns null for missing keys', async () => {
+    expect(await getSetting(db, 'nope')).toBeNull();
+  });
+
+  it('round-trips values', async () => {
+    await setSetting(db, 'voice_on', '1');
+    expect(await getSetting(db, 'voice_on')).toBe('1');
+    await setSetting(db, 'voice_on', '0');
+    expect(await getSetting(db, 'voice_on')).toBe('0');
+  });
+
+  it('upserts (no duplicate-key errors)', async () => {
+    await setSetting(db, 'k', 'v1');
+    await setSetting(db, 'k', 'v2');
+    expect(await getSetting(db, 'k')).toBe('v2');
   });
 });
 

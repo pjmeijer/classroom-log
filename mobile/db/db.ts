@@ -1,5 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 
+import { localDayStartMs, localDayEndMs } from '../lib/dates';
 import { uuid } from '../lib/id';
 import { migrate } from './migrations';
 
@@ -75,5 +76,128 @@ export async function setStudentVoiceAllowed(
     'UPDATE students SET recording_enabled = ? WHERE id = ?',
     allowed ? 1 : 0,
     id
+  );
+}
+
+// ---- Notes ---------------------------------------------------------------
+
+export async function addNote(
+  db: SQLite.SQLiteDatabase,
+  { studentId, text }: { studentId: string; text: string }
+): Promise<{ id: string }> {
+  const id = uuid();
+  const now = Date.now();
+  await db.runAsync(
+    'INSERT INTO notes (id, student_id, text, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    id,
+    studentId,
+    text,
+    now,
+    now
+  );
+  return { id };
+}
+
+export async function getNote(
+  db: SQLite.SQLiteDatabase,
+  id: string
+): Promise<Note | null> {
+  const row = await db.getFirstAsync<Note>(
+    'SELECT * FROM notes WHERE id = ?',
+    id
+  );
+  return row ?? null;
+}
+
+export async function updateNote(
+  db: SQLite.SQLiteDatabase,
+  id: string,
+  text: string
+): Promise<void> {
+  await db.runAsync(
+    'UPDATE notes SET text = ?, updated_at = ? WHERE id = ?',
+    text,
+    Date.now(),
+    id
+  );
+}
+
+export async function deleteNote(
+  db: SQLite.SQLiteDatabase,
+  id: string
+): Promise<void> {
+  await db.runAsync('DELETE FROM notes WHERE id = ?', id);
+}
+
+export async function moveNote(
+  db: SQLite.SQLiteDatabase,
+  noteId: string,
+  newStudentId: string
+): Promise<void> {
+  await db.runAsync(
+    'UPDATE notes SET student_id = ?, updated_at = ? WHERE id = ?',
+    newStudentId,
+    Date.now(),
+    noteId
+  );
+}
+
+export async function getNotesForLocalDate(
+  db: SQLite.SQLiteDatabase,
+  ymd: string
+): Promise<Array<Note & { student_name: string }>> {
+  const start = localDayStartMs(ymd);
+  const end = localDayEndMs(ymd);
+  return db.getAllAsync(
+    `SELECT n.*, s.name AS student_name
+       FROM notes n
+       JOIN students s ON s.id = n.student_id
+      WHERE n.created_at >= ? AND n.created_at < ?
+      ORDER BY n.created_at ASC, n.id ASC`,
+    start,
+    end
+  );
+}
+
+export async function getNotesForStudentInLocalRange(
+  db: SQLite.SQLiteDatabase,
+  studentId: string,
+  fromYmd: string,
+  toYmd: string
+): Promise<Note[]> {
+  const start = localDayStartMs(fromYmd);
+  const end = localDayEndMs(toYmd);
+  return db.getAllAsync<Note>(
+    `SELECT * FROM notes
+      WHERE student_id = ? AND created_at >= ? AND created_at < ?
+      ORDER BY created_at ASC, id ASC`,
+    studentId,
+    start,
+    end
+  );
+}
+
+// ---- Settings ------------------------------------------------------------
+
+export async function getSetting(
+  db: SQLite.SQLiteDatabase,
+  key: string
+): Promise<string | null> {
+  const row = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM settings WHERE key = ?',
+    key
+  );
+  return row?.value ?? null;
+}
+
+export async function setSetting(
+  db: SQLite.SQLiteDatabase,
+  key: string,
+  value: string
+): Promise<void> {
+  await db.runAsync(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    key,
+    value
   );
 }
