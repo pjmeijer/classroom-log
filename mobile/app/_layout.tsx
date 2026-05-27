@@ -8,6 +8,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { migrate } from '../db/migrations';
 import { getSetting } from '../db/db';
 import { colors } from '../lib/theme';
+import { cleanupOrphanRecordings } from '../lib/audio';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -31,6 +32,7 @@ function RouterGate({ children }: { children: React.ReactNode }) {
       }
       setReady(true);
       SplashScreen.hideAsync().catch(() => {});
+      cleanupOrphanRecordings().catch(() => {});
     })();
   }, [db]);
 
