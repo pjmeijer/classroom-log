@@ -28,11 +28,25 @@ const MIGRATIONS: Record<number, string> = {
 };
 
 export async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
-  const current = (await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))?.user_version ?? 0;
+  const current =
+    (await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))
+      ?.user_version ?? 0;
+  if (current > TARGET_VERSION) {
+    throw new Error(
+      `Database schema version ${current} is newer than this app supports (target ${TARGET_VERSION}). Refusing to run.`
+    );
+  }
   for (let v = current + 1; v <= TARGET_VERSION; v++) {
     const sql = MIGRATIONS[v];
     if (!sql) throw new Error(`No migration for version ${v}`);
-    await db.execAsync(sql);
-    await db.execAsync(`PRAGMA user_version = ${v}`);
+    await db.execAsync('BEGIN');
+    try {
+      await db.execAsync(sql);
+      await db.execAsync(`PRAGMA user_version = ${v}`);
+      await db.execAsync('COMMIT');
+    } catch (e) {
+      await db.execAsync('ROLLBACK').catch(() => {});
+      throw e;
+    }
   }
 }

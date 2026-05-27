@@ -1,5 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { initDb, listActiveStudents, addStudent, archiveStudent, setStudentVoiceAllowed } from '../db';
+import { migrate } from '../migrations';
 
 let db: SQLite.SQLiteDatabase;
 
@@ -41,5 +42,14 @@ describe('students', () => {
   it('enforces PRAGMA foreign_keys on every connection', async () => {
     const r = await db.getFirstAsync<{ foreign_keys: number }>('PRAGMA foreign_keys');
     expect(r?.foreign_keys).toBe(1);
+  });
+});
+
+describe('migrations', () => {
+  it('refuses to run when user_version is newer than the app supports', async () => {
+    const future = await SQLite.openDatabaseAsync(':memory:');
+    await future.execAsync('PRAGMA user_version = 99');
+    await expect(migrate(future)).rejects.toThrow(/newer than this app/);
+    await future.closeAsync();
   });
 });
