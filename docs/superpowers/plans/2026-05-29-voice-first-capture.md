@@ -813,6 +813,7 @@ export const copy = {
   micDeniedSnack: 'Mikrofon deaktiveret — hold på en elev for at skrive i stedet.',
   draftSavedToast: 'Gemt som kladde.',
   transcribeError: '(fejl under transskribering — tryk på noten for at prøve igen)',
+  retryTranscription: 'Prøv igen',
   emptyRecording: '(tom optagelse)',
   summaryUpstreamError: 'Opsummeringstjenesten er midlertidigt utilgængelig. Prøv igen om et øjeblik.',
   summaryRetry: 'Prøv igen',
@@ -1705,6 +1706,7 @@ describe('StudentTile', () => {
 ```tsx
 import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { colors, radii, spacing, fonts, shadows } from '../lib/theme';
+import { copy } from '../lib/copy';
 
 const DOT_COLORS = ['#C4543B', '#7B9A66', '#E6A547', '#6B8FAD', '#9A6B96', '#C4543B', '#7B9A66', '#E6A547'];
 
@@ -1739,7 +1741,7 @@ export function StudentTile({ name, index, onPress, onLongPress, disabled, notes
         <Text style={styles.label} numberOfLines={1}>{name}</Text>
         {typeof notesToday === 'number' && (
           <Text style={styles.meta} numberOfLines={1}>
-            {notesToday === 0 ? 'Ingen noter endnu' : notesToday === 1 ? '1 note i dag' : `${notesToday} noter i dag`}
+            {copy.notesToday(notesToday)}
           </Text>
         )}
       </View>
@@ -1757,9 +1759,9 @@ const styles = StyleSheet.create({
 });
 ```
 
-The "X notes today" meta line uses inline strings rather than `copy.X`
-because the pluralization is structural; if a future locale needs
-different plural forms, the whole helper moves into `lib/copy.ts`.
+The "X notes today" meta line uses `copy.notesToday(count)` (defined
+in Task 5) so plural forms can shift in a single file when a future
+locale needs different rules.
 
 - [ ] **Step 4: Run, watch it pass.**
 
@@ -1803,7 +1805,7 @@ import { NoteRow } from '../components/NoteRow';
 import { StatusPill } from '../components/StatusPill';
 import { ToastUndoEdit } from '../components/ToastUndoEdit';
 import { useCaptureStore } from '../store/useCaptureStore';
-import { ensurePermission, useRecorder, startRecording, stopRecording, deleteRecording } from '../lib/audio';
+import { ensurePermission, useRecorder, startRecording, stopRecording, deleteRecording, discardRecording } from '../lib/audio';
 import { fetchTranscript } from '../api/transcribe';
 import { DEFAULT_API_BASE_URL } from '../api/config';
 import { colors, fonts, spacing, radii } from '../lib/theme';
@@ -1854,7 +1856,8 @@ export default function Home() {
     try {
       await startRecording(recorder);
     } catch (e) {
-      // Recorder failed to start — clear state, do nothing visible.
+      // Recorder failed to start — discard any partial file, then clear state.
+      await discardRecording(recorder);
       useCaptureStore.getState().cancel();
     }
   }
@@ -1899,18 +1902,19 @@ export default function Home() {
   async function handleCancel() {
     const r = useCaptureStore.getState().cancel();
     if (!r) return;
-    try {
-      await stopRecording(r.recorder);
-    } catch {}
-    // best-effort discard; orphan cleanup will sweep anything left over
-    const uri = r.recorder.uri;
-    if (uri) await deleteRecording(uri);
+    // discardRecording centralizes stop + delete; orphan cleanup catches anything left.
+    await discardRecording(r.recorder);
   }
 
   async function handleUndo() {
     const s = lastSaved;
     if (!s) return;
     useCaptureStore.getState().dismissToast();
+    // Failed-transcription placeholder may have audio_uri; clean up the file before deleting the row.
+    const row = await db.getFirstAsync<{ audio_uri: string | null }>(
+      'SELECT audio_uri FROM notes WHERE id = ?', s.noteId
+    );
+    if (row?.audio_uri) await deleteRecording(row.audio_uri);
     await deleteNote(db, s.noteId);
     await reload();
   }
@@ -2195,7 +2199,7 @@ import { addNote, updateNote, deleteNote, getNote, listActiveStudents, getSettin
 import { DiscardSheet } from '../../components/DiscardSheet';
 import { RecordingBar } from '../../components/RecordingBar';
 import { useCaptureStore } from '../../store/useCaptureStore';
-import { ensurePermission, useRecorder, startRecording, stopRecording, deleteRecording } from '../../lib/audio';
+import { ensurePermission, useRecorder, startRecording, stopRecording, deleteRecording, discardRecording } from '../../lib/audio';
 import { fetchTranscript } from '../../api/transcribe';
 import { DEFAULT_API_BASE_URL } from '../../api/config';
 import { colors, fonts, spacing, radii, shadows } from '../../lib/theme';
@@ -2242,16 +2246,20 @@ export default function NoteModal() {
   const editing = !!noteId;
   const allowLeaveRef = useRef(false);
 
+  // P1 #7: while the dirty check or an in-progress recording matters, disable
+  // the iOS swipe-down gesture so it can't bypass beforeRemove. The gesture
+  // re-enables as soon as both conditions clear.
+  useEffect(() => {
+    navigation.setOptions({ gestureEnabled: !(dirty || recordingInThisModal) });
+  }, [navigation, dirty, recordingInThisModal]);
+
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', async (e: any) => {
       if (recording !== null && recordingInThisModal) {
         e.preventDefault();
         // Cancel the recording first, then re-fire the dismissal so the dirty check runs again.
         const r = useCaptureStore.getState().cancel();
-        if (r) {
-          try { await stopRecording(r.recorder); } catch {}
-          if (r.recorder.uri) await deleteRecording(r.recorder.uri);
-        }
+        if (r) await discardRecording(r.recorder);
         // re-attempt the original navigation
         navigation.dispatch(e.data.action);
         return;
@@ -2323,6 +2331,8 @@ export default function NoteModal() {
     try {
       await startRecording(recorder);
     } catch {
+      // Recorder failed to start — discard any partial file, then clear state.
+      await discardRecording(recorder);
       useCaptureStore.getState().cancel();
     }
   }
@@ -2340,16 +2350,17 @@ export default function NoteModal() {
     }
     const transcript = result.text.trim();
     if (!transcript) return;
-    setText(prev => prev.slice(0, selection.start) + transcript + prev.slice(selection.end));
-    const newPos = selection.start + transcript.length;
+    // P2: clamp to MAX_LEN so the appended transcript can't blow past the textarea cap.
+    setText(prev => (prev.slice(0, selection.start) + transcript + prev.slice(selection.end)).slice(0, MAX_LEN));
+    const newPos = Math.min(selection.start + transcript.length, MAX_LEN);
     setSelection({ start: newPos, end: newPos });
   }
 
   async function handleBarCancel() {
     const r = useCaptureStore.getState().cancel();
     if (!r) return;
-    try { await stopRecording(r.recorder); } catch {}
-    if (r.recorder.uri) await deleteRecording(r.recorder.uri);
+    // discardRecording centralizes stop + delete; orphan cleanup catches anything left.
+    await discardRecording(r.recorder);
   }
 
   const micAllowed = voiceOn && student?.recording_enabled === 1 && recording === null;
@@ -2512,6 +2523,12 @@ Find the `<Stack ... />` line and replace:
 (Expo Router accepts `<Stack.Screen>` children for per-route overrides;
 other routes inherit the parent options.)
 
+The modal itself flips `gestureEnabled` per render via
+`navigation.setOptions({ gestureEnabled: !(dirty || recordingInThisModal) })`
+(wired in Task 15). That prevents the iOS swipe-down from bypassing the
+`beforeRemove` dirty-check or aborting an in-progress recording without
+cleanup. No additional Stack.Screen option is needed here.
+
 - [ ] **Step 2: Run tsc.**
 
 ```bash
@@ -2573,6 +2590,13 @@ def test_summary_third_person_no_first_person(client):
             'student_name': 'Stine',
             'notes': [{'ts': 1700000000000, 'text': 'Det går fint i dag.'}],
         })
+        # Verify the SYSTEM_PROMPT actually reached Anthropic with the Danish
+        # third-person rules. The mock returns pre-baked Danish so the body
+        # assertions below would also pass with a regressed prompt — these
+        # assertions pin the contract that the prompt itself enforces.
+        sent_system = A.return_value.messages.create.call_args.kwargs['system']
+        assert 'no "jeg"' in sent_system
+        assert 'IN DANISH' in sent_system
     assert r.status_code == 200
     body = r.json()
     for k in ['positives', 'concerns', 'patterns', 'next_steps']:
@@ -2583,8 +2607,15 @@ def test_summary_third_person_no_first_person(client):
         assert ' min ' not in f' {s} '
 
 def test_summary_anthropic_5xx_friendly_message(client):
+    import httpx
     from anthropic import APIStatusError
-    err = APIStatusError(message='upstream meltdown', response=MagicMock(status_code=500, request_id='req_123'), body={'type':'error'})
+    req = httpx.Request('POST', 'https://api.anthropic.com/v1/messages')
+    resp = httpx.Response(500, headers={'request-id': 'req_123'}, request=req)
+    err = APIStatusError(message='upstream meltdown', response=resp, body={'type':'error'})
+    # Anthropic SDK populates exception.request_id from the response's
+    # `request-id` header on most versions; pin it explicitly so the test
+    # doesn't depend on SDK internals.
+    err.request_id = 'req_123'
     with patch('app.clients.anthropic_client.Anthropic') as A:
         A.return_value.messages.create.side_effect = err
         r = client.post('/summary', json={
@@ -2671,7 +2702,11 @@ Replace the existing `except Exception as e: raise err(...)` block with:
         # message + request_id; everything else falls back to str(e).
         from anthropic import APIStatusError
         if isinstance(e, APIStatusError) and 500 <= getattr(e, 'status_code', 0) < 600:
-            rid = getattr(getattr(e, 'response', None), 'request_id', None) or getattr(e, 'request_id', None)
+            # The Anthropic Python SDK populates request_id directly on the
+            # exception (from the `request-id` response header). Don't dig
+            # through e.response — that attribute layout is SDK-internal and
+            # has shifted between minor versions.
+            rid = getattr(e, 'request_id', None)
             msg = "The summary service is temporarily unavailable. Please try again shortly."
             if rid:
                 msg = f"{msg} (request_id: {rid})"
@@ -2781,7 +2816,220 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 19: Onboarding gesture line
+## Task 19: "Prøv igen" — retry failed transcription from a placeholder note
+
+**Files:**
+- Modify: `mobile/db/db.ts` (extend `updateNote`, extend `getNote`)
+- Modify: `mobile/app/note/[studentId].tsx` (load `audio_uri`, render retry button)
+- Modify: `mobile/db/__tests__/db.test.ts` (cover the new `updateNote` opts)
+
+Background: when transcription fails (5xx / offline), Task 13's home
+flow saves a placeholder note with `audio_uri = <local file>`. The user
+sees `(fejl under transskribering — tryk på noten for at prøve igen)`
+but the modal has no actual retry control. This task adds the "Prøv
+igen" button inside the note modal. On success the placeholder text is
+replaced with the real transcript, the language is recorded, and the
+audio file is deleted. On failure the placeholder stays intact for
+another retry. Re-uses `copy.retryTranscription` (added to Task 5).
+
+- [ ] **Step 1: Extend `updateNote` in `mobile/db/db.ts`.**
+
+Keep the 3-arg signature backward-compatible; add an optional 4th
+`opts` arg so the retry path can set `language` and clear `audio_uri`
+in the same SQL UPDATE:
+
+```ts
+export async function updateNote(
+  db: SQLiteDatabase,
+  id: string,
+  text: string,
+  opts?: { language?: string | null; clearAudioUri?: boolean }
+): Promise<void> {
+  const fields: string[] = ['text = ?'];
+  const args: any[] = [text];
+  if (opts && 'language' in opts) {
+    fields.push('language = ?');
+    args.push(opts.language ?? null);
+  }
+  if (opts?.clearAudioUri) {
+    fields.push('audio_uri = NULL');
+  }
+  args.push(id);
+  await db.runAsync(
+    `UPDATE notes SET ${fields.join(', ')} WHERE id = ?`,
+    ...args
+  );
+}
+```
+
+- [ ] **Step 2: Extend `getNote` in `mobile/db/db.ts` to return the new columns.**
+
+```ts
+// SELECT now includes audio_uri + language (added by migration v2 in Task 1).
+export async function getNote(db: SQLiteDatabase, id: string) {
+  return db.getFirstAsync<{
+    id: string;
+    student_id: string;
+    text: string;
+    audio_uri: string | null;
+    language: string | null;
+    created_at: string;
+  }>(
+    `SELECT id, student_id, text, audio_uri, language, created_at FROM notes WHERE id = ?`,
+    id
+  );
+}
+```
+
+If a row type is exported (e.g. `Note`), extend it the same way and
+re-export.
+
+- [ ] **Step 3: Wire the retry button in `mobile/app/note/[studentId].tsx`.**
+
+Add state for `audioUri` plus a `retrying` flag:
+
+```tsx
+const [audioUri, setAudioUri] = useState<string | null>(null);
+const [retrying, setRetrying] = useState(false);
+```
+
+Populate `audioUri` after `getNote` returns:
+
+```tsx
+if (n) {
+  setText(n.text);
+  setInitialText(n.text);
+  setAudioUri(n.audio_uri ?? null);
+  setSelection({ start: n.text.length, end: n.text.length });
+}
+```
+
+Add the handler:
+
+```tsx
+async function handleRetryTranscription() {
+  if (!audioUri || !noteId || retrying || recording !== null) return;
+  setRetrying(true);
+  try {
+    const result = await fetchTranscript(apiUrl, audioUri);
+    if (!result.ok) {
+      Alert.alert(copy.transcribeError);
+      return;
+    }
+    const transcript = result.text.trim() || copy.emptyRecording;
+    await updateNote(db, noteId, transcript, { language: result.language, clearAudioUri: true });
+    await deleteRecording(audioUri);
+    setText(transcript);
+    setInitialText(transcript);
+    setAudioUri(null);
+    setSelection({ start: transcript.length, end: transcript.length });
+  } finally {
+    setRetrying(false);
+  }
+}
+```
+
+Render the button between the textarea and the action row, only when
+the note actually has an audio file to retry and no recording is
+running:
+
+```tsx
+{editing && audioUri && recording === null && (
+  <Pressable
+    accessibilityRole="button"
+    accessibilityLabel={copy.retryTranscription}
+    onPress={handleRetryTranscription}
+    disabled={retrying}
+    style={[styles.retryBtn, retrying && { opacity: 0.5 }]}
+  >
+    <Text style={styles.retryLabel}>{copy.retryTranscription}</Text>
+  </Pressable>
+)}
+```
+
+Add styles:
+
+```ts
+retryBtn: { alignSelf: 'center', backgroundColor: colors.surface2, paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, borderRadius: radii.md, marginVertical: spacing.sm },
+retryLabel: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.ink },
+```
+
+Notes:
+- Manually setting `text` + `initialText` to the new transcript keeps
+  `dirty` false, so the modal can dismiss cleanly without prompting.
+- `audioUri = null` flips the button off; the placeholder note is now
+  a normal editable note.
+- Retry button is disabled while a recording is active to keep the
+  single-recording invariant.
+
+- [ ] **Step 4: Add a jest test for the new `updateNote` opts.**
+
+In `mobile/db/__tests__/db.test.ts` (extend the existing suite):
+
+```ts
+test('updateNote with opts sets language and clears audio_uri', async () => {
+  const db = await openTestDb();
+  await addNote(db, { studentId: 'S1', text: 'placeholder', language: null, audioUri: 'file:///audio.m4a' });
+  const row = await db.getFirstAsync<{ id: string }>(
+    `SELECT id FROM notes WHERE student_id = ?`, 'S1');
+  await updateNote(db, row!.id, 'real transcript', { language: 'danish', clearAudioUri: true });
+  const after = await db.getFirstAsync<{ text: string; audio_uri: string | null; language: string | null }>(
+    `SELECT text, audio_uri, language FROM notes WHERE id = ?`, row!.id);
+  expect(after?.text).toBe('real transcript');
+  expect(after?.audio_uri).toBeNull();
+  expect(after?.language).toBe('danish');
+});
+
+test('updateNote without opts preserves audio_uri and language (backward-compat)', async () => {
+  const db = await openTestDb();
+  await addNote(db, { studentId: 'S1', text: 'placeholder', language: 'danish', audioUri: 'file:///audio.m4a' });
+  const row = await db.getFirstAsync<{ id: string }>(
+    `SELECT id FROM notes WHERE student_id = ?`, 'S1');
+  await updateNote(db, row!.id, 'edited text');
+  const after = await db.getFirstAsync<{ text: string; audio_uri: string | null; language: string | null }>(
+    `SELECT text, audio_uri, language FROM notes WHERE id = ?`, row!.id);
+  expect(after?.text).toBe('edited text');
+  expect(after?.audio_uri).toBe('file:///audio.m4a');
+  expect(after?.language).toBe('danish');
+});
+```
+
+- [ ] **Step 5: Run jest + tsc.**
+
+```bash
+cd mobile && npm test && npx tsc --noEmit
+```
+
+Expected: all green.
+
+- [ ] **Step 6: Commit.**
+
+```bash
+cd /workspace
+git add mobile/db/db.ts mobile/app/note/\[studentId\].tsx mobile/db/__tests__/db.test.ts
+git -c user.name="pjmeijer" -c user.email="pjmeijer@me.com" commit -m "$(cat <<'EOF'
+feat(mobile): retry placeholder transcription with Prøv igen button
+
+When /transcribe fails (5xx/offline), Task 13's home flow saves a
+placeholder note with the audio file kept. Opening that note now
+shows a Prøv igen button that re-POSTs /transcribe with the local
+audio. On success the placeholder text is replaced with the real
+transcript, language is recorded, and the audio file is deleted. On
+failure the placeholder stays intact for another retry.
+
+updateNote() gains an optional opts arg so language and audio_uri can
+update in the same SQL UPDATE; existing 3-arg call sites are unchanged.
+getNote() now returns audio_uri and language so the modal can decide
+when to render the retry button.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+## Task 20: Onboarding gesture line
 
 **Files:**
 - Modify: `mobile/app/onboarding.tsx`
@@ -2818,7 +3066,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 20: Final in-container verification
+## Task 21: Final in-container verification
 
 **Files:** none (verification only)
 
@@ -2852,7 +3100,7 @@ Expected: all green.
 
 ---
 
-## Task 21: Codex review of the v1.1 diff
+## Task 22: Codex review of the v1.1 diff
 
 **Files:** none (review only)
 
@@ -2908,7 +3156,7 @@ Expected: all green.
 
 ---
 
-## Task 22: Stop for on-device smoke test
+## Task 23: Stop for on-device smoke test
 
 **Files:** none (handoff to user)
 
@@ -2932,11 +3180,11 @@ User runs from Windows on the SDK-54 build:
 
 ---
 
-## Task 23: FF-merge into `feat/v1-implementation`
+## Task 24: FF-merge into `feat/v1-implementation`
 
 **Files:** none
 
-Only after Task 22 passes.
+Only after Task 23 passes.
 
 - [ ] **Step 1: Fast-forward merge.**
 
@@ -2972,83 +3220,60 @@ git branch -d feat/voice-first-capture
 - [ ] `pytest` in `backend/` → all green
 - [ ] `git diff feat/v1-implementation..feat/voice-first-capture --stat` shows only the files listed under "Files touched" in the spec, plus the new test files
 - [ ] Codex review returns PASS (or all P1 findings addressed)
-- [ ] User on-device smoke test (Task 22) all checks pass
+- [ ] User on-device smoke test (Task 23) all checks pass
 - [ ] Branch fast-forwarded into `feat/v1-implementation`
 - [ ] User pushes from Windows
 
 ---
 
-## Remaining codex-review fixes to apply before execution
+## Codex-review fixes applied (history)
 
-A `/codex review` pass on this plan flagged 7 P1s + 5 P2s. The
-following are **already applied** above:
+A `/codex review` pass on this plan flagged 7 P1s + 5 P2s. All have
+been folded into the relevant task sections above. Listed here so a
+future reviewer can see the audit trail without re-reading every task.
 
 - ✅ P1 #1 — Migration partial-apply recovery (Task 1: `runV2` probes
   `PRAGMA table_info(notes)` per column).
+- ✅ P1 #2 — Audio-file leak paths use `discardRecording(r.recorder)`:
+  Task 13's `handleCancel` + `handleTapTile` recorder-start-failure
+  branch; Task 15's `handleBarCancel` + `handleMicTap` recorder-start-
+  failure branch + `beforeRemove` cancellation path. All open-coded
+  stop+delete sequences replaced with the central helper.
 - ✅ P1 #3 — `discardRecording(recorder)` helper centralizes the
-  stop-and-delete sequence (Task 4); home + modal cancel paths should
-  call this instead of open-coding the sequence.
+  stop-and-delete sequence (Task 4); consumed by all cancel paths.
+- ✅ P1 #4 — Task 13's `handleUndo` fetches the note's `audio_uri`
+  before `deleteNote` and calls `deleteRecording` if it's non-null, so
+  Undo on a failed-transcription placeholder no longer leaks the file.
 - ✅ P1 #5 — `cleanupOrphanRecordings` compares basenames (Task 4)
   so `file://` vs plain-path mismatch doesn't orphan referenced files.
+- ✅ P1 #6 — New Task 19 ("Prøv igen" retry-from-placeholder) added
+  between Task 18 and Task 20. Modal shows a Prøv igen button when
+  `audio_uri` is non-null; on success, text + language update and
+  audio file is deleted. `updateNote` extended with optional opts
+  (`{ language, clearAudioUri }`); `getNote` returns the new columns.
+- ✅ P1 #7 — Task 15 modal sets `gestureEnabled: false` via
+  `navigation.setOptions` while `dirty || recordingInThisModal` so iOS
+  swipe-down can't bypass `beforeRemove`. Task 16 notes the dynamic
+  wiring; Stack.Screen keeps only the static `presentation: 'modal'`.
 - ✅ P1 ToastUndoEdit timer cancellation (Task 11: clears
   `timerRef.current` on action so the timeout callback can't race past
   Undo/Edit).
+- ✅ P2 — Anthropic SDK shape (Task 17): runtime uses
+  `getattr(e, 'request_id', None)`; test builds a real httpx.Response
+  with the `request-id` header and pins `err.request_id` defensively.
+- ✅ P2 — Prompt-regression test (Task 17) asserts
+  `messages.create.call_args.kwargs['system']` contains `no "jeg"` and
+  `IN DANISH` so the new constraint can't silently regress.
+- ✅ P2 — Task 15 transcript append clamps to `MAX_LEN` after
+  insertion; selection is also clamped to `MAX_LEN`.
 - ✅ P2 RecordingTile pulse via `useRef` (Task 10: was recreating
   `Animated.Value` on every render).
 - ✅ P2 `lastSaved` stores `studentId` (Task 9: `SavedHandle` has both
   `studentId` for routing and `studentName` for display).
-- ✅ P2 `copy.notesToday(count)` (Task 5: Danish pluralization moved
-  to `copy.ts`; Task 12's `StudentTile` should call it, see remaining
-  list below).
+- ✅ P2 `copy.notesToday(count)` (Task 5 defines it; Task 12's
+  `StudentTile` now imports `copy` and calls it instead of inline
+  Danish ternary).
 
-The following codex P1s/P2s are **not yet applied** in the body of
-this plan. Apply them at the top of the next session, before running
-Task 0:
-
-- ⏳ P1 #2 — Audio-file leak paths in Tasks 13 and 15. Update
-  `handleCancel` (home) and `handleBarCancel` (modal) to call
-  `discardRecording(r.recorder)` instead of the open-coded
-  `stopRecording` + `deleteRecording` sequence. Same in the
-  `recorder-start-failure` branch and the `beforeRemove` cancellation
-  path.
-- ⏳ P1 #4 — Undo of a failed-transcription placeholder leaks the
-  audio file (Task 13's `handleUndo`). Before `deleteNote`, fetch the
-  note and, if `note.audio_uri` is non-null, call
-  `deleteRecording(note.audio_uri)`.
-- ⏳ P1 #6 — No "tap placeholder to retry transcription" task. Add a
-  new task (between Task 18 and Task 19): when the user taps a
-  Today's-notes row whose underlying note has `audio_uri NOT NULL`,
-  show a "Prøv igen" button in the modal that re-`POST`s
-  `/transcribe` with the local file. On success: update
-  `note.text` + `note.language`, clear `note.audio_uri`, call
-  `deleteRecording(audio_uri)`. On failure: leave it. Requires:
-  `updateNote` signature extension to optionally clear `audio_uri`
-  and set `language`.
-- ⏳ P1 #7 — iOS modal swipe-down may bypass `beforeRemove`. Two
-  options to apply in Task 15 / 16:
-    1. Replace `navigation.addListener('beforeRemove', ...)` with
-       `usePreventRemove` from React Navigation (preferred).
-    2. Set `gestureEnabled: false` on the `note/[studentId]` Stack.Screen
-       whenever `dirty || recordingInThisModal` so the modal can't be
-       swiped away while the dirty-check is needed.
-  Pick (2) for minimum diff; (1) is correct but pulls in the React
-  Navigation hooks API.
-- ⏳ P2 — Anthropic SDK shape (Task 17). Replace
-  `getattr(getattr(e, 'response', None), 'request_id', None) or getattr(e, 'request_id', None)`
-  with `getattr(e, 'request_id', None)`. The Anthropic Python SDK
-  populates `request_id` from the `request-id` response header
-  directly on the exception. The test's mock should build a real-ish
-  `httpx.Response` carrying `request-id` headers.
-- ⏳ P2 — Prompt-regression test does not test the prompt (Task 17).
-  Add an assertion that
-  `A.return_value.messages.create.call_args.kwargs['system']`
-  contains the new third-person Danish constraint string (e.g.
-  `'no "jeg"'`).
-- ⏳ P2 — Transcript append in modal (Task 15) does not respect
-  `MAX_LEN`. Clamp `prev.slice(...) + transcript + prev.slice(...)` to
-  `MAX_LEN` after insertion.
-- ⏳ P2 — `StudentTile` (Task 12) uses inline Danish for the note
-  count. Replace with `copy.notesToday(notesToday)`.
-
-Once all of the above are applied, re-run `/codex review` on the
-final plan. Expected: PASS with at most a couple of cosmetic P2s.
+A follow-up `/codex review` is still scheduled as Task 22 against the
+implemented diff (not the plan). Expected: PASS with at most a couple
+of cosmetic P2s.
