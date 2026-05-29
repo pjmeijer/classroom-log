@@ -59,7 +59,9 @@ export default function RootLayout() {
   return (
     <SQLiteProvider databaseName="classroom-log.db" onInit={onDbInit}>
       <RouterGate>
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }} />
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
+          <Stack.Screen name="note/[studentId]" options={{ presentation: 'modal' }} />
+        </Stack>
       </RouterGate>
     </SQLiteProvider>
   );
