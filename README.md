@@ -24,7 +24,7 @@ No cloud database. No accounts. The phone keeps the only persistent copy of note
 ## Prerequisites
 
 - **Node.js 20+** and **npm**
-- **Python 3.11+**
+- **Python 3.13** on Windows (use `py -3.13`). Python 3.14 doesn't yet have prebuilt wheels for our pinned `pydantic==2.9.2` / `pydantic-core==2.23.4`, so the install will hang on a Rust build. Grab 3.13 from <https://www.python.org/downloads/release/python-3131/>.
 - **Expo Go** app on your phone ([iOS](https://apps.apple.com/app/expo-go/id982107779) / [Android](https://play.google.com/store/apps/details?id=host.exp.exponent))
 - **ngrok** (free tier is fine) — phone hits the backend through a public tunnel
 - **OpenAI API key** (Whisper) and **Anthropic API key** (Claude)
@@ -36,8 +36,11 @@ From the repo root in PowerShell:
 ```powershell
 cd backend
 
-# First time only — create and populate the virtualenv
-python -m venv .venv
+# If you have a half-built .venv from a previous attempt, nuke it first:
+# Remove-Item -Recurse -Force .\.venv
+
+# First time only — create and populate the virtualenv. Pin to 3.13 (see Prerequisites).
+py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
@@ -60,9 +63,11 @@ Note the `https://*.ngrok-free.app` URL — that's what the phone will talk to.
 Smoke test the tunnel:
 
 ```powershell
-curl https://YOUR-NGROK-URL/health
+curl.exe https://YOUR-NGROK-URL/health
 # Expect: {"ok":true,"anthropic_ok":true,"openai_ok":true}
 ```
+
+Use `curl.exe`, not `curl`. In PowerShell, `curl` is an alias for `Invoke-WebRequest`, which prompts about script parsing and wraps the response in an object. `curl.exe` calls the real curl binary that ships with Windows 10+ and just prints the JSON body.
 
 ## Run the mobile app
 
