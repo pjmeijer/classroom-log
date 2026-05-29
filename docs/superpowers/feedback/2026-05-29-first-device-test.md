@@ -89,6 +89,39 @@ the way.** Two-tier:
   language) and pass to Claude as a system instruction, or always pass the
   Settings-screen "primary language" preference?
 
+## Distribution / tunnel issue (track for later)
+
+Expo's `--tunnel` mode (Metro exposed via `@expo/ngrok`) is globally
+rate-limited because `@expo/cli` hardcodes a SHARED ngrok auth token in
+`AsyncNgrok.js` (line 96 of `node_modules/expo/node_modules/@expo/cli/build/src/start/server/AsyncNgrok.js`).
+There is no env-var override (`NGROK_AUTHTOKEN` is ignored; only
+`EXPO_TUNNEL_SUBDOMAIN` is honored, and that's just for naming).
+
+For local dev this is fine — LAN mode (`npm start`, default after the
+script flip) skips ngrok entirely. **The problem appears for testers who
+are not on the same Wi-Fi as the laptop** (off-site teachers, remote
+demos, cellular). When they try to scan a tunnel QR, Metro times out
+under the shared-token rate limit.
+
+Options to evaluate before scaling beyond local-only testing:
+
+1. **Dev build via EAS** — skip Expo Go entirely, distribute via TestFlight
+   / Internal App Sharing. Requires Apple Developer Program ($99/yr) and
+   either EAS Build (free tier exists) or local Xcode. Standard answer
+   for "I have testers."
+2. **Self-host the tunnel** — `--tunnel` accepts `EXPO_TUNNEL_SUBDOMAIN`
+   for naming, but the auth is still Expo's shared token. Could fork
+   `@expo/cli` locally and patch the token, but that's brittle.
+3. **Paid ngrok + manual setup** — run `ngrok http 8081` separately,
+   point testers at the resulting URL (similar pattern to the backend
+   tunnel). Works for one tester at a time per token.
+4. **Switch tunnel transport entirely** — `@expo/ws-tunnel` exists in
+   the codebase but is currently only auto-selected when
+   `envIsWebcontainer()` is true. Worth checking if Expo has a flag to
+   force it on Windows native.
+
+Decision is post-v1. For now, the on-Wi-Fi tester path works.
+
 ## Source-of-truth references
 
 - Existing modal route: `mobile/app/note/[studentId].tsx`

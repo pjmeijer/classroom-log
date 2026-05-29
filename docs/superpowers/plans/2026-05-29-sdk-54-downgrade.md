@@ -389,9 +389,34 @@ git branch -d chore/sdk-54-downgrade
 
 ## Verification gates (must all pass before declaring DONE)
 
-- [ ] `npm test` in `mobile/` → 24/24 pass
-- [ ] `npx tsc --noEmit` in `mobile/` → zero errors
-- [ ] `npm start -- --tunnel` shows Metro ready, QR code, no red errors
-- [ ] `git diff feat/v1-implementation..chore/sdk-54-downgrade --stat` shows only the expected files
-- [ ] Codex review returns PASS (or all findings addressed in follow-up commits)
+- [x] `npm test` in `mobile/` → 24/24 pass
+- [x] `npx tsc --noEmit` in `mobile/` → zero errors
+- [x] On-device smoke test (App Store Expo Go, LAN mode): golden path
+      onboarding → settings → capture (text) → summary works. Voice
+      capture still pending (Task 14 in v1 plan — not in scope here).
+- [x] `git diff feat/v1-implementation..chore/sdk-54-downgrade --stat`
+      shows only SDK deps + lock + AGENTS URL + plan + UX feedback +
+      README updates + .env.example — no scope creep.
+- [x] Codex review returns PASS (1 P2 advisory on `.env.example`
+      placeholder).
 - [ ] Branch fast-forwarded into `feat/v1-implementation`
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| Codex Review | `/codex review` | Independent 2nd opinion | 1 | PASS | 1 finding (P2), 0/1 fixed |
+| Eng Review | `/plan-eng-review` | Architecture & tests | 0 | not run | mechanical SDK pin swap; in-container jest + tsc + on-device smoke covered it |
+
+**CODEX:** PASS gate. One P2 advisory: `mobile/.env.example:10` ships a
+placeholder URL (`https://example.ngrok.app`) that looks plausible enough
+to be mistaken for a default. Suggests an obviously-invalid placeholder
+(`EXPO_PUBLIC_API_BASE_URL=` or `https://your-backend.ngrok-free.app`).
+Decision deferred to controller (the user committed an explicit value
+intentionally during dev testing).
+
+**UNRESOLVED:** 1 (the P2 above — decided not to block merge on it).
+
+**VERDICT:** Codex CLEARED — ready to FF-merge into
+`feat/v1-implementation`. Eng review skipped for this scope (pure dep
+swap with full test + on-device smoke coverage).
