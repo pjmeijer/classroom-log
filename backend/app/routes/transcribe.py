@@ -29,13 +29,13 @@ async def transcribe(audio: UploadFile = File(...)):
         if not audio_bytes:
             raise err("empty_audio", "Audio payload was empty.", status=400)
         try:
-            text = await transcribe_audio(bytes(audio_bytes), audio.filename or "audio.m4a")
+            result = await transcribe_audio(bytes(audio_bytes), audio.filename or "audio.m4a")
         except HTTPException:
             # Already an enveloped error; let it propagate untouched.
             raise
         except Exception as e:
             raise err("openai_error", str(e), status=502)
-        return {"text": text}
+        return {"text": result["text"], "language": result.get("language")}
     finally:
         # Ensure the upload buffer is closed — uvicorn handles this in normal flow,
         # but explicit close defends against retained buffers under exceptions.

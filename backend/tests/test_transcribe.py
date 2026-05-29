@@ -1,18 +1,33 @@
 import io
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 @patch("app.routes.transcribe.transcribe_audio", new_callable=AsyncMock)
 def test_transcribe_returns_text(mock_t, client):
-    mock_t.return_value = "Stayed focused through morning math."
+    mock_t.return_value = {"text": "Stayed focused through morning math.", "language": "danish"}
     fake_audio = io.BytesIO(b"RIFF....fake-wav-bytes")
     r = client.post(
         "/transcribe",
         files={"audio": ("note.m4a", fake_audio, "audio/m4a")},
     )
     assert r.status_code == 200
-    assert r.json() == {"text": "Stayed focused through morning math."}
+    body = r.json()
+    assert body["text"] == "Stayed focused through morning math."
+    assert body["language"] == "danish"
+
+
+def test_transcribe_returns_text_and_language(client):
+    # Patch the openai SDK call to return a verbose_json-shaped object.
+    fake_resp = MagicMock(text='Det går fint i dag.', language='danish')
+    with patch('app.clients.openai_client.OpenAI') as openai_ctor:
+        openai_ctor.return_value.audio.transcriptions.create.return_value = fake_resp
+        files = {'audio': ('a.m4a', b'fake bytes', 'audio/m4a')}
+        r = client.post('/transcribe', files=files)
+    assert r.status_code == 200
+    body = r.json()
+    assert body['text'] == 'Det går fint i dag.'
+    assert body['language'] == 'danish'
 
 
 @patch("app.routes.transcribe.transcribe_audio", new_callable=AsyncMock)
