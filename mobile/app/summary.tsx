@@ -61,7 +61,13 @@ export default function Summary() {
     const r = await fetchSummary(apiUrl, student.name, notes.map(n => ({ ts: n.created_at, text: n.text })));
     setLoading(false);
     if (r.ok) setSections(r.sections);
-    else setErrorMsg(`${r.error.code}: ${r.error.message}`);
+    else {
+      if (r.error.code === 'anthropic_error') {
+        setErrorMsg(copy.summaryUpstreamError);
+      } else {
+        setErrorMsg(r.error.message);
+      }
+    }
   }
 
   async function copyAll() {
@@ -117,7 +123,14 @@ export default function Summary() {
         )}
 
         {loading && <ActivityIndicator style={{ marginTop: spacing.xl }} />}
-        {errorMsg && <Text style={styles.error}>{errorMsg}</Text>}
+        {errorMsg && (
+          <View>
+            <Text style={styles.error}>{errorMsg}</Text>
+            <View style={{ marginTop: spacing.sm, alignItems: 'center' }}>
+              <PrimaryButton label={copy.summaryRetry} onPress={generate} variant="secondary" disabled={loading} />
+            </View>
+          </View>
+        )}
 
         {sections && (
           <View>
