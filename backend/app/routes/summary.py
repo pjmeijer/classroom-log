@@ -35,6 +35,15 @@ async def summary(req: SummaryRequest):
     try:
         raw = await generate_summary(req.student_name, [n.model_dump() for n in req.notes])
     except Exception as e:
+        # Stop leaking Python repr of upstream dicts. Treat 5xx as friendly
+        # message + request_id; everything else falls back to str(e).
+        from anthropic import APIStatusError
+        if isinstance(e, APIStatusError) and 500 <= getattr(e, 'status_code', 0) < 600:
+            rid = getattr(e, 'request_id', None)
+            msg = "The summary service is temporarily unavailable. Please try again shortly."
+            if rid:
+                msg = f"{msg} (request_id: {rid})"
+            raise err("anthropic_error", msg, status=502)
         raise err("anthropic_error", str(e), status=502)
     try:
         return SummaryResponse(**raw)

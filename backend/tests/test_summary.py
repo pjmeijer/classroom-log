@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 @pytest.fixture
@@ -79,3 +79,59 @@ def test_summary_rejects_non_string_tool_output(mock_gen, client, sample_payload
     r = client.post("/summary", json=sample_payload)
     assert r.status_code == 502
     assert r.json()["error"]["code"] == "anthropic_error"
+
+
+def _mock_anthropic_response(text_block: dict):
+    """Build a fake Anthropic response with a single tool_use block."""
+    block = MagicMock()
+    block.type = 'tool_use'
+    block.name = 'produce_summary'
+    block.input = text_block
+    resp = MagicMock()
+    resp.content = [block]
+    return resp
+
+
+def test_summary_third_person_no_first_person(client):
+    fake = _mock_anthropic_response({
+        'positives': 'Eleven deltog aktivt i samlingen.',
+        'concerns': 'Ingen tydelige bekymringer i dag.',
+        'patterns': 'Roen kom efter ca. 10 minutter.',
+        'next_steps': 'Fortsæt at observere overgangen efter frokost.',
+    })
+    with patch('app.clients.anthropic_client.Anthropic') as A:
+        A.return_value.messages.create.return_value = fake
+        r = client.post('/summary', json={
+            'student_name': 'Stine',
+            'notes': [{'ts': 1700000000000, 'text': 'Det går fint i dag.'}],
+        })
+        sent_system = A.return_value.messages.create.call_args.kwargs['system']
+        assert 'no "jeg"' in sent_system
+        assert 'IN DANISH' in sent_system
+    assert r.status_code == 200
+    body = r.json()
+    for k in ['positives', 'concerns', 'patterns', 'next_steps']:
+        s = body[k].lower()
+        assert ' jeg ' not in f' {s} '
+        assert ' mig ' not in f' {s} '
+        assert ' min ' not in f' {s} '
+
+def test_summary_anthropic_5xx_friendly_message(client):
+    import httpx
+    from anthropic import APIStatusError
+    req = httpx.Request('POST', 'https://api.anthropic.com/v1/messages')
+    resp = httpx.Response(500, headers={'request-id': 'req_123'}, request=req)
+    err = APIStatusError(message='upstream meltdown', response=resp, body={'type':'error'})
+    err.request_id = 'req_123'
+    with patch('app.clients.anthropic_client.Anthropic') as A:
+        A.return_value.messages.create.side_effect = err
+        r = client.post('/summary', json={
+            'student_name': 'Stine',
+            'notes': [{'ts': 1, 'text': 'a'}],
+        })
+    assert r.status_code == 502
+    body = r.json()
+    msg = body['error']['message']
+    assert "{'type':" not in msg
+    assert "<MagicMock" not in msg
+    assert 'req_123' in msg or 'try again' in msg.lower()
