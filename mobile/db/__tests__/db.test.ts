@@ -186,15 +186,18 @@ describe('migrate v2', () => {
     await db.closeAsync();
   });
 
-  it('recovers from partial v2 apply (one column added, user_version still 1)', async () => {
+  it('recovers from partial v2 apply (language exists, audio_uri missing, user_version = 1)', async () => {
     const db = await openTestDb();
-    // Simulate: v1 succeeded, language was added, then a crash before audio_uri.
-    await migrate(db);                                  // get to v2 cleanly
-    // Tear back down to "partial v2" state: set version to 1 (leave language in place)
-    await db.execAsync('PRAGMA user_version = 1');
-    // (we leave language in place — that's the "partial apply" state)
-    // Re-running migrate must NOT throw "duplicate column language"
+    // Reach v2 cleanly, then forge the genuine "partial apply" state:
+    // the first ALTER (add language) succeeded, the second (add audio_uri)
+    // crashed before completing, and user_version is still at 1.
     await migrate(db);
+    await db.execAsync('ALTER TABLE notes DROP COLUMN audio_uri');
+    await db.execAsync('PRAGMA user_version = 1');
+
+    // Re-running migrate must NOT throw "duplicate column language" AND must add audio_uri.
+    await migrate(db);
+
     const cols = (await db.getAllAsync<{ name: string }>('PRAGMA table_info(notes)')).map(c => c.name);
     expect(cols).toContain('language');
     expect(cols).toContain('audio_uri');
