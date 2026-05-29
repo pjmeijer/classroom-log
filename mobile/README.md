@@ -14,8 +14,11 @@ npm install
 Copy-Item .env.example .env
 notepad .env   # paste your backend's https://*.ngrok-free.app URL
 
-# Start Metro with the tunnel transport — phone connects via Expo Go
-npm start -- --tunnel
+# Start Metro on the local network (default — phone + laptop on same Wi-Fi)
+npm start
+
+# Or, if your phone is on cellular / a different network from the laptop:
+npm run start:tunnel
 ```
 
 Scan the QR code with **App Store Expo Go** on your phone. The backend tunnel (ngrok) must be running separately — see the root README.
@@ -41,7 +44,7 @@ The mobile app has two ways to know your backend's address. Pick one.
 
 `mobile/.env` is gitignored; `mobile/.env.example` is the template.
 
-## Troubleshooting `npm start -- --tunnel`
+## Troubleshooting `npm run start:tunnel`
 
 ### `CommandError: ngrok tunnel took too long to connect.`
 
@@ -49,17 +52,11 @@ Expo's `--tunnel` uses `@expo/ngrok` with a **shared, hardcoded auth token** bak
 
 Real options:
 
-1. **Drop `--tunnel`, use LAN.** This is the right answer for local dev when the phone and laptop are on the same Wi-Fi:
-   ```powershell
-   npm start            # no --tunnel — Metro listens at exp://192.168.x.x:8081
-   # or:
-   npx expo start --lan
-   ```
-   No ngrok, no rate limit, much faster. If your laptop has Windows Defender or another firewall blocking inbound 8081, allow the rule for "Node.js" once.
+1. **Use LAN — that's what `npm start` already does.** Metro listens at `exp://192.168.x.x:8081`; phone + laptop must share Wi-Fi. No ngrok, no rate limit, much faster. If Windows Defender prompts on first start, allow Node.js on Private networks.
 
-2. **Retry `--tunnel`** if you genuinely need it (e.g. testing on a phone on cellular while your laptop is on Wi-Fi). The shared token recovers within a minute or so most days.
+2. **Retry `npm run start:tunnel`** if you genuinely need it (testing on a phone on cellular while your laptop is on Wi-Fi). The shared token recovers within a minute or so most days.
 
-3. **Use a dev build** instead of Expo Go. This is the long-term answer if you ship to testers via TestFlight / Internal App Sharing — you skip Expo Go's tunnel entirely. Out of scope for this v1.
+3. **Use a dev build** instead of Expo Go. The long-term answer if you ship to testers via TestFlight / Internal App Sharing — skips Expo Go's tunnel entirely. Out of scope for v1.
 
 ### `Metro waiting on exp://...` but the QR doesn't load on the phone
 

@@ -83,13 +83,16 @@ npm install
 Copy-Item .env.example .env
 notepad .env   # paste your https://*.ngrok-free.app URL
 
-# Start the Metro bundler with the tunnel transport
-npm start -- --tunnel
+# Start the Metro bundler on your local network (phone + laptop on same Wi-Fi)
+npm start
+
+# Or, if your phone is on cellular / a different network from the laptop
+npm run start:tunnel
 ```
 
 A QR code appears. Open **App Store Expo Go** on your phone and scan it. The app opens at the Onboarding screen on first launch.
 
-**Heads up — two tunnels, only one is yours.** `ngrok http 8000` is your own backend tunnel; you control the auth token via the `ngrok` CLI. `expo start --tunnel` is a *separate* ngrok exposing Metro, and Expo CLI bakes in a **shared** auth token (`AsyncNgrok.js`) that every Expo user worldwide hits — there is no env-var override (`NGROK_AUTHTOKEN` is ignored). If Metro fails with `ngrok tunnel took too long to connect`, drop `--tunnel` and use `npm start` (LAN mode, phone + laptop on same Wi-Fi). See `mobile/README.md` for the full troubleshooting list.
+**Heads up — two tunnels, only one is yours.** `ngrok http 8000` is your own backend tunnel; you control its auth via the `ngrok` CLI. `npm run start:tunnel` is a *separate* ngrok exposing Metro, and Expo CLI bakes in a **shared** auth token (`AsyncNgrok.js`) that every Expo user worldwide hits — there is no env-var override (`NGROK_AUTHTOKEN` is ignored). If Metro fails with `ngrok tunnel took too long to connect`, use plain `npm start` (LAN mode, phone + laptop on same Wi-Fi). See `mobile/README.md` for the full troubleshooting list.
 
 In the app:
 1. **Onboarding** — read the privacy disclosure, tap "Allow microphone", tap "Start using the app"
