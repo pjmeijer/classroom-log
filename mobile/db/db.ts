@@ -16,6 +16,8 @@ export interface Note {
   id: string;
   student_id: string;
   text: string;
+  language: string | null;        // ISO-ish; whatever Whisper returns. null for text-typed notes.
+  audio_uri: string | null;       // local file URI when a transcription failed; null otherwise.
   created_at: number;
   updated_at: number;
 }

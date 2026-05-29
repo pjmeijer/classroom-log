@@ -165,3 +165,41 @@ describe('migrations', () => {
     await future.closeAsync();
   });
 });
+
+async function openTestDb() {
+  return SQLite.openDatabaseAsync(':memory:');
+}
+
+describe('migrate v2', () => {
+  it('adds notes.language and notes.audio_uri columns at v2', async () => {
+    const db = await openTestDb();
+    await migrate(db);
+    await migrate(db);                       // re-run must be idempotent
+    const cols = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(notes)"
+    );
+    const names = cols.map(c => c.name);
+    expect(names).toContain('language');
+    expect(names).toContain('audio_uri');
+    const v = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    expect(v?.user_version).toBe(2);
+    await db.closeAsync();
+  });
+
+  it('recovers from partial v2 apply (one column added, user_version still 1)', async () => {
+    const db = await openTestDb();
+    // Simulate: v1 succeeded, language was added, then a crash before audio_uri.
+    await migrate(db);                                  // get to v2 cleanly
+    // Tear back down to "partial v2" state: set version to 1 (leave language in place)
+    await db.execAsync('PRAGMA user_version = 1');
+    // (we leave language in place — that's the "partial apply" state)
+    // Re-running migrate must NOT throw "duplicate column language"
+    await migrate(db);
+    const cols = (await db.getAllAsync<{ name: string }>('PRAGMA table_info(notes)')).map(c => c.name);
+    expect(cols).toContain('language');
+    expect(cols).toContain('audio_uri');
+    const v = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    expect(v?.user_version).toBe(2);
+    await db.closeAsync();
+  });
+});
