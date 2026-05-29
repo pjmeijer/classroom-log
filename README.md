@@ -89,7 +89,7 @@ npm start -- --tunnel
 
 A QR code appears. Open **App Store Expo Go** on your phone and scan it. The app opens at the Onboarding screen on first launch.
 
-**Heads up — two tunnels.** `ngrok http 8000` exposes your backend; `expo start --tunnel` exposes Metro so Expo Go can fetch the JS bundle. Both default to anonymous ngrok and share its rate limits. If Metro errors with `ngrok tunnel took too long to connect`, retry, or drop to LAN (`npm start` without `--tunnel`) if your phone is on the same Wi-Fi. See `mobile/README.md` for the full troubleshooting list including the optional `NGROK_AUTHTOKEN`.
+**Heads up — two tunnels, only one is yours.** `ngrok http 8000` is your own backend tunnel; you control the auth token via the `ngrok` CLI. `expo start --tunnel` is a *separate* ngrok exposing Metro, and Expo CLI bakes in a **shared** auth token (`AsyncNgrok.js`) that every Expo user worldwide hits — there is no env-var override (`NGROK_AUTHTOKEN` is ignored). If Metro fails with `ngrok tunnel took too long to connect`, drop `--tunnel` and use `npm start` (LAN mode, phone + laptop on same Wi-Fi). See `mobile/README.md` for the full troubleshooting list.
 
 In the app:
 1. **Onboarding** — read the privacy disclosure, tap "Allow microphone", tap "Start using the app"
