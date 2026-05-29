@@ -102,7 +102,7 @@ EOF
 - Modify: `mobile/db/db.ts:5-17` (the `Note` interface)
 - Test: `mobile/db/__tests__/db.test.ts` (extend)
 
-- [ ] **Step 1: Write the failing test for migration v2 idempotency.**
+- [ ] **Step 1: Write the failing tests for migration v2 (full re-run + partial-apply recovery).**
 
 Add to `mobile/db/__tests__/db.test.ts`:
 
@@ -121,6 +121,22 @@ describe('migrate', () => {
     const names = cols.map(c => c.name);
     expect(names).toContain('language');
     expect(names).toContain('audio_uri');
+    const v = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    expect(v?.user_version).toBe(2);
+  });
+
+  it('recovers from partial v2 apply (one column added, user_version still 1)', async () => {
+    const db = await openTestDb();
+    // Simulate: v1 succeeded, language was added, then a crash before audio_uri.
+    await migrate(db);                                  // get to v2 cleanly
+    // Tear back down to "partial v2" state: drop audio_uri + set version to 1
+    await db.execAsync('PRAGMA user_version = 1');
+    // (we leave language in place — that's the "partial apply" state)
+    // Re-running migrate must NOT throw "duplicate column language"
+    await migrate(db);
+    const cols = (await db.getAllAsync<{ name: string }>('PRAGMA table_info(notes)')).map(c => c.name);
+    expect(cols).toContain('language');
+    expect(cols).toContain('audio_uri');
     const v = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
     expect(v?.user_version).toBe(2);
   });
@@ -146,44 +162,89 @@ npm test -- --testPathPattern db
 Expected: FAIL with "expected ... to contain 'language'" (column not added) or
 "expected user_version to be 2" (still at 1).
 
-- [ ] **Step 3: Add migration v2 in `mobile/db/migrations.ts`.**
+- [ ] **Step 3: Add migration v2 in `mobile/db/migrations.ts` — per-column probe so a partial-apply doesn't brick the next boot.**
+
+Replace the entire `migrations.ts` with this. The string-table approach
+works for v1 (clean CREATEs), but v2 needs ALTERs and we want per-column
+idempotency so a crash between the two ALTERs doesn't leave the db
+stuck (re-running would fail with "duplicate column" and never advance
+to user_version = 2).
 
 ```ts
+import * as SQLite from 'expo-sqlite';
+
 const TARGET_VERSION = 2;
 
-const MIGRATIONS: Record<number, string> = {
-  1: `
-    CREATE TABLE students (
-      id                 TEXT PRIMARY KEY,
-      name               TEXT NOT NULL,
-      recording_enabled  INTEGER NOT NULL DEFAULT 1,
-      archived_at        INTEGER,
-      created_at         INTEGER NOT NULL
-    );
-    CREATE TABLE notes (
-      id          TEXT PRIMARY KEY,
-      student_id  TEXT NOT NULL REFERENCES students(id) ON DELETE RESTRICT,
-      text        TEXT NOT NULL,
-      created_at  INTEGER NOT NULL,
-      updated_at  INTEGER NOT NULL
-    );
-    CREATE INDEX idx_notes_student_created ON notes(student_id, created_at, id);
-    CREATE INDEX idx_notes_created ON notes(created_at, id);
-    CREATE TABLE settings (
-      key    TEXT PRIMARY KEY,
-      value  TEXT NOT NULL
-    );
-  `,
-  2: `
-    ALTER TABLE notes ADD COLUMN language TEXT;
-    ALTER TABLE notes ADD COLUMN audio_uri TEXT;
-  `,
-};
+const V1_SQL = `
+  CREATE TABLE students (
+    id                 TEXT PRIMARY KEY,
+    name               TEXT NOT NULL,
+    recording_enabled  INTEGER NOT NULL DEFAULT 1,
+    archived_at        INTEGER,
+    created_at         INTEGER NOT NULL
+  );
+  CREATE TABLE notes (
+    id          TEXT PRIMARY KEY,
+    student_id  TEXT NOT NULL REFERENCES students(id) ON DELETE RESTRICT,
+    text        TEXT NOT NULL,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+  CREATE INDEX idx_notes_student_created ON notes(student_id, created_at, id);
+  CREATE INDEX idx_notes_created ON notes(created_at, id);
+  CREATE TABLE settings (
+    key    TEXT PRIMARY KEY,
+    value  TEXT NOT NULL
+  );
+`;
+
+async function notesHasColumn(db: SQLite.SQLiteDatabase, col: string): Promise<boolean> {
+  const rows = await db.getAllAsync<{ name: string }>('PRAGMA table_info(notes)');
+  return rows.some(r => r.name === col);
+}
+
+async function runV2(db: SQLite.SQLiteDatabase): Promise<void> {
+  // Per-column probe: safe on fresh upgrades AND on partial-apply re-runs.
+  if (!(await notesHasColumn(db, 'language'))) {
+    await db.execAsync('ALTER TABLE notes ADD COLUMN language TEXT');
+  }
+  if (!(await notesHasColumn(db, 'audio_uri'))) {
+    await db.execAsync('ALTER TABLE notes ADD COLUMN audio_uri TEXT');
+  }
+}
+
+export async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
+  // Take the write lock BEFORE reading user_version so two concurrent
+  // openers cannot both observe version 0 and race CREATE TABLE.
+  await db.execAsync('BEGIN IMMEDIATE');
+  try {
+    const current =
+      (await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))
+        ?.user_version ?? 0;
+    if (current > TARGET_VERSION) {
+      throw new Error(
+        `Database schema version ${current} is newer than this app supports (target ${TARGET_VERSION}). Refusing to run.`
+      );
+    }
+    if (current < 1) {
+      await db.execAsync(V1_SQL);
+      await db.execAsync('PRAGMA user_version = 1');
+    }
+    if (current < 2) {
+      await runV2(db);
+      await db.execAsync('PRAGMA user_version = 2');
+    }
+    await db.execAsync('COMMIT');
+  } catch (e) {
+    await db.execAsync('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
 ```
 
-The existing version-counter logic in `migrate()` will only run v2 if
-`user_version < 2`. Re-running on a v2 db is a no-op. No `IF NOT EXISTS`
-needed at column level.
+Note for future migrations: v3+ should follow the same per-statement
+idempotency pattern (probe before ALTER, or wrap each statement in
+catch-and-ignore-already-applied).
 
 - [ ] **Step 4: Update the `Note` interface in `mobile/db/db.ts`.**
 
@@ -416,50 +477,157 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 4: `cleanupOrphanRecordings` respects `notes.audio_uri`
+## Task 4: `cleanupOrphanRecordings` respects `notes.audio_uri` (basename-normalized) + new `discardRecording` helper
 
 **Files:**
-- Modify: `mobile/lib/audio.ts` (cleanupOrphanRecordings signature + logic)
+- Modify: `mobile/lib/audio.ts` (cleanupOrphanRecordings + new discardRecording helper)
 - Modify: `mobile/app/_layout.tsx` (pass db to cleanup call)
 - Test: `mobile/lib/__tests__/audio.test.ts` (extend)
 
-- [ ] **Step 1: Write the failing test.**
+We compare files by **basename**, not full path. The recorder's `uri`
+comes back as `file:///...` while the `cacheDirectory` walk produces
+unprefixed paths; if we compare full strings, the keep-set will miss
+and the file gets deleted on the next boot. Basename comparison is
+correct because expo-audio writes unique random filenames into the
+cache directory — collisions are impossible in practice.
+
+We also extract a single `discardRecording(recorder)` helper that owns
+the "stop + delete" sequence. Every cancel / error path in home and
+modal calls this, so we never leak.
+
+- [ ] **Step 1: Write the failing tests.**
 
 Add to `mobile/lib/__tests__/audio.test.ts`:
 
 ```ts
+import * as dbModule from '../../db/db';
+
 describe('cleanupOrphanRecordings — preserves notes.audio_uri', () => {
-  it('skips files listed in getNotesWithAudioUri', async () => {
+  it('skips files whose basename matches a stored audio_uri (file://… form)', async () => {
     const fs = require('expo-file-system/legacy');
+    fs.cacheDirectory = '/cache/';
     fs.readDirectoryAsync.mockResolvedValue(['a.m4a', 'b.m4a', 'c.m4a']);
     fs.deleteAsync.mockClear();
 
-    const fakeDb = {} as any;
-    const { cleanupOrphanRecordings } = require('../audio');
-    const { getNotesWithAudioUri } = require('../../db/db');
-    jest.spyOn(require('../../db/db'), 'getNotesWithAudioUri')
-      .mockResolvedValue(['/cache/b.m4a']);
+    jest.spyOn(dbModule, 'getNotesWithAudioUri')
+      .mockResolvedValue(['file:///somewhere/b.m4a']);
 
-    await cleanupOrphanRecordings(fakeDb);
+    const { cleanupOrphanRecordings } = require('../audio');
+    await cleanupOrphanRecordings({} as any);
 
     const deletedPaths = fs.deleteAsync.mock.calls.map((c: any) => c[0]);
     expect(deletedPaths).toContain('/cache/a.m4a');
     expect(deletedPaths).toContain('/cache/c.m4a');
     expect(deletedPaths).not.toContain('/cache/b.m4a');
   });
+
+  it('skips files whose basename matches a stored audio_uri (plain path form)', async () => {
+    const fs = require('expo-file-system/legacy');
+    fs.cacheDirectory = '/cache/';
+    fs.readDirectoryAsync.mockResolvedValue(['x.m4a', 'y.m4a']);
+    fs.deleteAsync.mockClear();
+    jest.spyOn(dbModule, 'getNotesWithAudioUri').mockResolvedValue(['/elsewhere/y.m4a']);
+
+    const { cleanupOrphanRecordings } = require('../audio');
+    await cleanupOrphanRecordings({} as any);
+
+    const deletedPaths = fs.deleteAsync.mock.calls.map((c: any) => c[0]);
+    expect(deletedPaths).toContain('/cache/x.m4a');
+    expect(deletedPaths).not.toContain('/cache/y.m4a');
+  });
+});
+
+describe('discardRecording', () => {
+  it('stops the recorder and deletes the resulting file (idempotent on missing)', async () => {
+    const fs = require('expo-file-system/legacy');
+    fs.deleteAsync.mockClear();
+    const recorder: any = {
+      stop: jest.fn().mockResolvedValue(undefined),
+      uri: '/cache/zz.m4a',
+    };
+    const { discardRecording } = require('../audio');
+    await discardRecording(recorder);
+    expect(recorder.stop).toHaveBeenCalled();
+    expect(fs.deleteAsync).toHaveBeenCalledWith('/cache/zz.m4a', { idempotent: true });
+  });
+
+  it('does not throw when recorder.stop rejects or uri is missing', async () => {
+    const fs = require('expo-file-system/legacy');
+    fs.deleteAsync.mockClear();
+    const recorder: any = {
+      stop: jest.fn().mockRejectedValue(new Error('boom')),
+      uri: null,
+    };
+    const { discardRecording } = require('../audio');
+    await expect(discardRecording(recorder)).resolves.toBeUndefined();
+  });
 });
 ```
 
-- [ ] **Step 2: Run, watch it fail.**
+- [ ] **Step 2: Run, watch them fail.**
 
-`cleanupOrphanRecordings()` currently takes no args; the test passes
-`fakeDb` so calling it will currently throw or ignore. Expected: FAIL.
+```bash
+npm test -- --testPathPattern audio
+```
 
-- [ ] **Step 3: Update `cleanupOrphanRecordings` in `mobile/lib/audio.ts`.**
+- [ ] **Step 3: Update `mobile/lib/audio.ts`.**
 
 ```ts
 import * as SQLite from 'expo-sqlite';
+import { AudioModule, useAudioRecorder, RecordingPresets, type AudioRecorder } from 'expo-audio';
+import * as FileSystem from 'expo-file-system/legacy';
 import { getNotesWithAudioUri } from '../db/db';
+
+export async function ensurePermission(): Promise<boolean> {
+  const status = await AudioModule.requestRecordingPermissionsAsync();
+  return status.granted;
+}
+
+export function useRecorder(): AudioRecorder {
+  return useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+}
+
+export async function startRecording(rec: AudioRecorder): Promise<void> {
+  await rec.prepareToRecordAsync();
+  rec.record();
+}
+
+export async function stopRecording(rec: AudioRecorder): Promise<{ uri: string; size: number } | null> {
+  await rec.stop();
+  const uri = rec.uri;
+  if (!uri) return null;
+  const info = await FileSystem.getInfoAsync(uri);
+  if (!info.exists) return null;
+  return { uri, size: info.size ?? 0 };
+}
+
+export async function deleteRecording(uri: string): Promise<void> {
+  try {
+    await FileSystem.deleteAsync(uri, { idempotent: true });
+  } catch {
+    // Recording may already be gone; ignore.
+  }
+}
+
+/**
+ * Best-effort "drop this recording on the floor" used by every cancel /
+ * error path (home tile cancel, modal cancel, modal-dismiss-while-
+ * recording, recorder errors during start). Stops the recorder (if it's
+ * recording) and deletes the resulting file. Never throws.
+ */
+export async function discardRecording(rec: AudioRecorder): Promise<void> {
+  try { await rec.stop(); } catch { /* might not have started or already stopped */ }
+  const uri = rec.uri;
+  if (!uri) return;
+  await deleteRecording(uri);
+}
+
+function basename(p: string): string {
+  // Works for both `file:///a/b/c.m4a` and `/a/b/c.m4a`.
+  const noQuery = p.split('?')[0];
+  const idx = noQuery.lastIndexOf('/');
+  return idx >= 0 ? noQuery.slice(idx + 1) : noQuery;
+}
 
 export async function cleanupOrphanRecordings(
   db: SQLite.SQLiteDatabase
@@ -467,7 +635,17 @@ export async function cleanupOrphanRecordings(
   const dir = FileSystem.cacheDirectory;
   if (!dir) return;
 
-  const keep = new Set(await getNotesWithAudioUri(db));
+  // Build the keep-set by basename so file:// vs plain-path mismatches
+  // don't accidentally orphan a referenced file.
+  let keep = new Set<string>();
+  try {
+    const uris = await getNotesWithAudioUri(db);
+    keep = new Set(uris.map(basename));
+  } catch {
+    // If db read fails, fail safe by keeping everything — better to leak
+    // than to delete a file that backs a real note.
+    return;
+  }
 
   let entries: string[] = [];
   try {
@@ -476,53 +654,46 @@ export async function cleanupOrphanRecordings(
     return;
   }
   for (const name of entries) {
-    if (name.endsWith('.m4a') || name.endsWith('.caf')) {
-      const full = dir + name;
-      if (keep.has(full)) continue;
-      await FileSystem.deleteAsync(full, { idempotent: true });
-    }
+    if (!(name.endsWith('.m4a') || name.endsWith('.caf'))) continue;
+    if (keep.has(name)) continue;
+    await FileSystem.deleteAsync(dir + name, { idempotent: true });
   }
 }
 ```
 
 - [ ] **Step 4: Update the call site in `mobile/app/_layout.tsx`.**
 
-Find the line:
+Find `cleanupOrphanRecordings().catch(() => {});` and replace with
+`cleanupOrphanRecordings(db).catch(() => {});`. The `db` is already in
+scope from `useSQLiteContext()`.
 
-```ts
-cleanupOrphanRecordings().catch(() => {});
-```
-
-Replace with:
-
-```ts
-cleanupOrphanRecordings(db).catch(() => {});
-```
-
-(The `db` is already in scope from `useSQLiteContext()`.)
-
-- [ ] **Step 5: Run, watch it pass.**
+- [ ] **Step 5: Run, watch the tests pass.**
 
 ```bash
 npm test -- --testPathPattern audio
 ```
 
-Expected: PASS. The existing tests in `audio.test.ts` still need to
-pass too; if any of them call `cleanupOrphanRecordings()` without an
-arg, update them to pass a mocked db.
+If any existing test calls `cleanupOrphanRecordings()` without an arg,
+update it.
 
 - [ ] **Step 6: Commit.**
 
 ```bash
 cd /workspace
 git add mobile/lib/audio.ts mobile/app/_layout.tsx mobile/lib/__tests__/audio.test.ts
-git -c user.name="pjmeijer" -c user.email="pjmeijer@me.com" commit -m "feat(mobile): cleanupOrphanRecordings preserves notes.audio_uri files
+git -c user.name="pjmeijer" -c user.email="pjmeijer@me.com" commit -m "$(cat <<'EOF'
+feat(mobile): basename-normalized orphan cleanup + discardRecording helper
 
-Cache-dir sweep now reads notes.audio_uri NOT NULL and excludes
-those URIs from deletion. Failed-transcription notes that hold a
-retry handle survive the next app boot's orphan sweep.
+- cleanupOrphanRecordings now compares basenames (not full URIs)
+  so file:// vs plain-path differences between the recorder and
+  the cacheDirectory walk don't orphan referenced files.
+- New discardRecording(recorder) consolidates stop + delete for
+  every cancel / error path used by home + modal; previously every
+  caller open-coded it and several paths leaked .m4a files.
 
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
 ```
 
 ---
@@ -557,6 +728,13 @@ describe('copy', () => {
     expect(copy.savedFor('Stine')).toBe('Gemt for Stine');
     expect(copy.savedFor('Mads-Erik')).toBe('Gemt for Mads-Erik');
   });
+
+  it('notesToday picks the right Danish form for 0 / 1 / N', () => {
+    expect(copy.notesToday(0)).toBe('Ingen noter endnu');
+    expect(copy.notesToday(1)).toBe('1 note i dag');
+    expect(copy.notesToday(2)).toBe('2 noter i dag');
+    expect(copy.notesToday(17)).toBe('17 noter i dag');
+  });
 });
 ```
 
@@ -589,6 +767,13 @@ export const copy = {
   savedFor: (name: string) => `Gemt for ${name}`,
   undo: 'Fortryd',
   edit: 'Redigér',
+
+  // Roster tile meta (note count for today)
+  notesToday: (count: number): string => {
+    if (count === 0) return 'Ingen noter endnu';
+    if (count === 1) return '1 note i dag';
+    return `${count} noter i dag`;
+  },
 
   // Note modal
   save: 'Gem',
@@ -1051,13 +1236,14 @@ describe('useCaptureStore', () => {
   });
 
   it('markSaved() exposes lastSaved for the toast', () => {
-    useCaptureStore.getState().markSaved({ noteId: 'n', studentName: 'Stine' });
+    useCaptureStore.getState().markSaved({ noteId: 'n', studentId: 'sid', studentName: 'Stine' });
     expect(useCaptureStore.getState().lastSaved?.noteId).toBe('n');
+    expect(useCaptureStore.getState().lastSaved?.studentId).toBe('sid');
     expect(useCaptureStore.getState().lastSaved?.studentName).toBe('Stine');
   });
 
   it('dismissToast() clears lastSaved', () => {
-    useCaptureStore.getState().markSaved({ noteId: 'n', studentName: 'Stine' });
+    useCaptureStore.getState().markSaved({ noteId: 'n', studentId: 'sid', studentName: 'Stine' });
     useCaptureStore.getState().dismissToast();
     expect(useCaptureStore.getState().lastSaved).toBeNull();
   });
@@ -1084,7 +1270,8 @@ interface RecordingState {
 
 interface SavedHandle {
   noteId: string;
-  studentName: string;
+  studentId: string;     // stable; do not infer from name (duplicate names exist)
+  studentName: string;   // display only
 }
 
 interface CaptureStore {
@@ -1214,7 +1401,7 @@ npm test -- --testPathPattern RecordingTile
 - [ ] **Step 3: Create `mobile/components/RecordingTile.tsx`.**
 
 ```tsx
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Animated, Easing } from 'react-native';
 import { colors, fonts, spacing, radii, shadows } from '../lib/theme';
 import { copy } from '../lib/copy';
@@ -1241,8 +1428,9 @@ export function RecordingTile({ studentName, startedAt, onStop, onCancel }: Prop
     return () => clearInterval(id);
   }, []);
 
-  // Pulsing red dot
-  const pulse = new Animated.Value(1);
+  // Pulsing red dot — stable Animated.Value across renders (was: recreated
+  // on every render which left a dangling animation on the stale value).
+  const pulse = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
@@ -1252,7 +1440,7 @@ export function RecordingTile({ studentName, startedAt, onStop, onCancel }: Prop
     );
     loop.start();
     return () => loop.stop();
-  }, []);
+  }, [pulse]);
 
   return (
     <View style={[styles.tile, shadows.soft]}>
@@ -1401,18 +1589,29 @@ interface Props {
 
 export function ToastUndoEdit({ studentName, onUndo, onEdit, onTimeout, durationMs = 5000 }: Props) {
   const fired = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const id = setTimeout(() => {
+    timerRef.current = setTimeout(() => {
+      if (fired.current) return;     // belt-and-suspenders: action may have raced ahead
       fired.current = true;
       onTimeout();
     }, durationMs);
-    return () => clearTimeout(id);
+    return () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
   }, [durationMs, onTimeout]);
 
   function handle(action: () => void) {
     if (fired.current) return;
     fired.current = true;
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
     action();
   }
 
@@ -2776,3 +2975,80 @@ git branch -d feat/voice-first-capture
 - [ ] User on-device smoke test (Task 22) all checks pass
 - [ ] Branch fast-forwarded into `feat/v1-implementation`
 - [ ] User pushes from Windows
+
+---
+
+## Remaining codex-review fixes to apply before execution
+
+A `/codex review` pass on this plan flagged 7 P1s + 5 P2s. The
+following are **already applied** above:
+
+- ✅ P1 #1 — Migration partial-apply recovery (Task 1: `runV2` probes
+  `PRAGMA table_info(notes)` per column).
+- ✅ P1 #3 — `discardRecording(recorder)` helper centralizes the
+  stop-and-delete sequence (Task 4); home + modal cancel paths should
+  call this instead of open-coding the sequence.
+- ✅ P1 #5 — `cleanupOrphanRecordings` compares basenames (Task 4)
+  so `file://` vs plain-path mismatch doesn't orphan referenced files.
+- ✅ P1 ToastUndoEdit timer cancellation (Task 11: clears
+  `timerRef.current` on action so the timeout callback can't race past
+  Undo/Edit).
+- ✅ P2 RecordingTile pulse via `useRef` (Task 10: was recreating
+  `Animated.Value` on every render).
+- ✅ P2 `lastSaved` stores `studentId` (Task 9: `SavedHandle` has both
+  `studentId` for routing and `studentName` for display).
+- ✅ P2 `copy.notesToday(count)` (Task 5: Danish pluralization moved
+  to `copy.ts`; Task 12's `StudentTile` should call it, see remaining
+  list below).
+
+The following codex P1s/P2s are **not yet applied** in the body of
+this plan. Apply them at the top of the next session, before running
+Task 0:
+
+- ⏳ P1 #2 — Audio-file leak paths in Tasks 13 and 15. Update
+  `handleCancel` (home) and `handleBarCancel` (modal) to call
+  `discardRecording(r.recorder)` instead of the open-coded
+  `stopRecording` + `deleteRecording` sequence. Same in the
+  `recorder-start-failure` branch and the `beforeRemove` cancellation
+  path.
+- ⏳ P1 #4 — Undo of a failed-transcription placeholder leaks the
+  audio file (Task 13's `handleUndo`). Before `deleteNote`, fetch the
+  note and, if `note.audio_uri` is non-null, call
+  `deleteRecording(note.audio_uri)`.
+- ⏳ P1 #6 — No "tap placeholder to retry transcription" task. Add a
+  new task (between Task 18 and Task 19): when the user taps a
+  Today's-notes row whose underlying note has `audio_uri NOT NULL`,
+  show a "Prøv igen" button in the modal that re-`POST`s
+  `/transcribe` with the local file. On success: update
+  `note.text` + `note.language`, clear `note.audio_uri`, call
+  `deleteRecording(audio_uri)`. On failure: leave it. Requires:
+  `updateNote` signature extension to optionally clear `audio_uri`
+  and set `language`.
+- ⏳ P1 #7 — iOS modal swipe-down may bypass `beforeRemove`. Two
+  options to apply in Task 15 / 16:
+    1. Replace `navigation.addListener('beforeRemove', ...)` with
+       `usePreventRemove` from React Navigation (preferred).
+    2. Set `gestureEnabled: false` on the `note/[studentId]` Stack.Screen
+       whenever `dirty || recordingInThisModal` so the modal can't be
+       swiped away while the dirty-check is needed.
+  Pick (2) for minimum diff; (1) is correct but pulls in the React
+  Navigation hooks API.
+- ⏳ P2 — Anthropic SDK shape (Task 17). Replace
+  `getattr(getattr(e, 'response', None), 'request_id', None) or getattr(e, 'request_id', None)`
+  with `getattr(e, 'request_id', None)`. The Anthropic Python SDK
+  populates `request_id` from the `request-id` response header
+  directly on the exception. The test's mock should build a real-ish
+  `httpx.Response` carrying `request-id` headers.
+- ⏳ P2 — Prompt-regression test does not test the prompt (Task 17).
+  Add an assertion that
+  `A.return_value.messages.create.call_args.kwargs['system']`
+  contains the new third-person Danish constraint string (e.g.
+  `'no "jeg"'`).
+- ⏳ P2 — Transcript append in modal (Task 15) does not respect
+  `MAX_LEN`. Clamp `prev.slice(...) + transcript + prev.slice(...)` to
+  `MAX_LEN` after insertion.
+- ⏳ P2 — `StudentTile` (Task 12) uses inline Danish for the note
+  count. Replace with `copy.notesToday(notesToday)`.
+
+Once all of the above are applied, re-run `/codex review` on the
+final plan. Expected: PASS with at most a couple of cosmetic P2s.
