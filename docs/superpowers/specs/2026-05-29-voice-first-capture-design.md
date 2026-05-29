@@ -18,6 +18,13 @@ Claude to slip into first-person ("she said…") when notes are terse
 Danish; this slice tightens the system prompt so observation stance is
 enforced. See "/summary — system prompt" below.
 
+**Language target for v1.1 is Danish only.** All UI labels, all summary
+output, and all error copy ship in Danish. We deliberately do not build
+a language picker — the audience for this slice is Danish
+special-education teachers in Danish schools. UI strings live in a
+single `mobile/lib/copy.ts` so a future i18n refactor is a single-file
+swap, not a hunt across components.
+
 After this slice ships, a teacher walking around a classroom can:
 
 1. Glance at the home screen → tap a student tile.
@@ -30,8 +37,13 @@ No navigation, no extra page, no keyboard, ~3 seconds.
 
 - **Streaming / live transcription.** Whisper runs after Stop. Streaming
   is a different backend posture.
-- **Translation between languages.** The summary matches the input
-  language; we do not translate Danish notes into English on demand.
+- **Multi-language UI / language picker.** v1.1 ships Danish-only. No
+  Settings field for choosing a language. UI strings centralize in
+  `mobile/lib/copy.ts` so adding a locale later is a refactor of one
+  file, not a hunt across components.
+- **Translation between languages.** The summary always responds in
+  Danish; we do not translate Danish notes into other languages on
+  demand.
 - **School-specific report templates.** Captured as a future surface that
   will read `primary_language` from Settings; not built here.
 - **Per-student care plan / IEP context.** Each student will eventually
@@ -271,8 +283,13 @@ ALTER TABLE notes ADD COLUMN language TEXT;
 
 Populated by:
 - **Voice notes**: Whisper's response `language` field (e.g. `da`, `en`).
-- **Text notes**: left `NULL`. Backend will fall back to `primary_language`
-  from Settings if needed.
+- **Text notes**: left `NULL`.
+
+The column is stored but **not functionally used in v1.1** — Danish is
+hardcoded in the summary system prompt. We capture the data now so a
+future multi-language slice can ship without a backfill: when the
+summary endpoint learns to take a `language` param, mobile can compute
+the dominant language from these rows without re-transcribing anything.
 
 Add a migration step in `db/migrations.ts` (or wherever existing
 migrations live) — keep it idempotent (`IF NOT EXISTS` style or version
@@ -297,33 +314,115 @@ notes with `audio_uri NOT NULL` — those are intentional, not orphans.
 
 ### `db/db.ts` — `settings` table
 
-Two new settings rows, both wired into the existing `getSetting` /
+One new settings row, wired into the existing `getSetting` /
 `setSetting` API (single-row-per-key model already in use for
 `voice_on`):
 
 ```ts
 // db/db.ts new settings
-const PRIMARY_LANGUAGE_DEFAULT = 'da';  // ISO 639-1
 const GESTURE_HINT_DISMISSED_DEFAULT = '0';
 ```
 
-`primary_language` powers the summary fallback (above) and future report
-templates. `gesture_hint_dismissed` is the boolean for the one-time
-long-press hint described below.
+`gesture_hint_dismissed` is the boolean for the one-time long-press hint
+described below. No `primary_language` setting in v1.1 — Danish is
+hardcoded throughout.
 
 ## Settings screen edits
 
-`app/settings.tsx` gets one new row:
+No language picker. The only Settings change in this slice is that all
+existing labels and helper text get swapped to Danish via the new
+`mobile/lib/copy.ts` (see UI strings section below). The student-roster
+management, the server URL field, and the "Test connection" affordance
+stay structurally the same — only their copy changes.
 
-> **Primary language**  [Danish ▾]
+## UI strings — `mobile/lib/copy.ts`
 
-Dropdown with 2 options for v1.1: Danish, English. Stored as ISO 639-1
-two-letter code (`da`, `en`). Used by:
+All UI text moves to a single module of named Danish constants. Each
+screen and component imports the keys it needs.
 
-- Summary backend as a fallback when the dominant language of the day's
-  notes cannot be determined (no notes, or text-only notes with no
-  detected language).
-- Future report templates (post-v1.1).
+```ts
+// mobile/lib/copy.ts
+export const copy = {
+  // Home
+  appTitle: 'Klasselog',
+  roster: 'Klasseliste',
+  todaysNotes: 'Dagens noter',
+  voiceOff: 'Stemme fra',
+  emptyRoster: 'Ingen elever endnu. Tilføj din første under Indstillinger.',
+  emptyNotes: 'Ingen noter i dag endnu.',
+  generateSummary: '＋ Lav opsummering',
+  gestureHint: 'Tip — hold på en elev for at skrive en note i stedet.',
+
+  // Recording (tile + bar)
+  recording: 'Optager',
+  stopAndSave: 'Stop & gem',
+  cancel: 'Annuller',
+
+  // Toast
+  savedFor: (name: string) => `Gemt for ${name}`,
+  undo: 'Fortryd',
+  edit: 'Redigér',
+
+  // Note modal
+  save: 'Gem',
+  update: 'Opdatér',
+  holdToDelete: 'Hold for at slette',
+  deleteConfirmTitle: 'Slet denne note?',
+  deleteConfirmBody: 'Dette kan ikke fortrydes.',
+  delete: 'Slet',
+  noteTextarea: 'Skriv en note, eller tryk på mikrofonen for at diktere…',
+
+  // Settings
+  settings: 'Indstillinger',
+  serverUrl: 'Server',
+  testConnection: 'Test forbindelse',
+  addStudent: 'Tilføj elev',
+  studentName: 'Elevens navn',
+
+  // Onboarding
+  onboardingTitle: 'Velkommen',
+  allowMicrophone: 'Tillad mikrofon',
+  startUsingApp: 'Begynd at bruge appen',
+
+  // Errors
+  micDeniedSnack: 'Mikrofon deaktiveret — hold på en elev for at skrive i stedet.',
+  draftSavedToast: 'Gemt som kladde.',
+  transcribeError: '(fejl under transskribering — tryk på noten for at prøve igen)',
+  emptyRecording: '(tom optagelse)',
+  summaryUpstreamError: 'Opsummeringstjenesten er midlertidigt utilgængelig. Prøv igen om et øjeblik.',
+  summaryRetry: 'Prøv igen',
+
+  // Summary screen
+  draftSummary: 'Kladde — opsummering',
+  draftReviewBeforeSharing: 'Kladde — gennemse før deling',
+  student: 'Elev',
+  date: 'Dato',
+  generate: 'Generér',
+  positives: 'Positive iagttagelser',
+  concerns: 'Bekymringer',
+  patterns: 'Mønstre',
+  nextSteps: 'Forslag til næste skridt',
+  rawNotes: 'Rå noter',
+  copyAll: 'Kopier alt',
+} as const;
+```
+
+Rules:
+
+- Components import `copy` from `lib/copy.ts` — no inline Danish string
+  literals in JSX.
+- Strings that interpolate (like `Gemt for ${name}`) ship as factory
+  functions so a future locale swap doesn't break ordering or
+  pluralization.
+- No need for a translation library yet; a future swap of `copy` for a
+  `getCopy(locale)` selector is the only change needed when a second
+  language lands.
+- Component tests assert on `copy.<key>` references, not on the Danish
+  literal, so a string change doesn't break unrelated tests.
+
+The implementation plan will own the actual swap of every existing
+component to import from `copy` — out of scope for the spec to enumerate
+every label individually. The keys above are a near-complete sketch.
 
 ## Backend changes
 
@@ -352,53 +451,61 @@ the student's own voice and wrote the summary partly in first-person
 are written BY the teacher OBSERVING the student.
 
 **Fix:** rewrite `SYSTEM_PROMPT` in
-`backend/app/clients/anthropic_client.py:31` to make agency explicit.
-Replace the current prompt with something like:
+`backend/app/clients/anthropic_client.py:31` to make agency explicit
+AND lock the output to Danish, with anchor examples. Prompt stays in
+English (more reliable tool-use grammar) but instructs Danish output and
+gives Danish examples.
 
-> You are an assistant to a special-education teacher. You will receive
-> that day's **observation notes** — brief notes that the teacher has
-> written (or dictated) to record what she observed about one student
-> during the day. The notes are the teacher's third-person observations of
-> the student's behavior. They are NOT the student's own voice, NOT a
-> transcript of the student speaking, and NOT the student's
-> introspection. Even when a note is terse and looks first-person (e.g.
-> "doing fine today"), the implied subject is the student, observed by
-> the teacher.
->
-> Produce a four-section draft using the `produce_summary` tool, written
-> from the teacher's observational stance:
->
-> - **Third-person about the student.** Use the student's name or "the
->   student" / "the student appeared to" / "the teacher noted". Never
->   use first-person on the student's behalf.
-> - **Quote observed behaviors, not interpretations of internal states.**
->   ("The student remained at her desk for the full lesson" — yes.
->   "The student felt calm" — no, unless the note explicitly says so.)
-> - **Match the language of the notes.** If today's notes are in Danish,
->   write the summary in Danish. If primarily another language, use
->   that. If the language is ambiguous, default to the language the
->   request specifies.
-> - **Draft, not finished document.** The teacher will review before
->   sharing. Flag gaps and recommend next observations, don't paper over
->   missing data.
+```python
+SYSTEM_PROMPT = (
+    "You are an assistant to a special-education teacher in Denmark.\n"
+    "\n"
+    "You will receive that day's OBSERVATION NOTES — brief notes the "
+    "teacher has written (or dictated) about what she observed about ONE "
+    "student during the school day. The notes are the teacher's "
+    "third-person observations of the student's behavior. They are NOT "
+    "the student's own voice, NOT a transcript of the student speaking, "
+    "and NOT the student's introspection. Even when a note is terse and "
+    "could be read as first-person (e.g. \"Det går fint i dag.\" = "
+    "\"Doing fine today.\"), the implied subject is THE STUDENT, observed "
+    "by the teacher.\n"
+    "\n"
+    "Produce a four-section draft using the `produce_summary` tool, "
+    "written from the teacher's observational stance:\n"
+    "\n"
+    "1. Third-person about the student. Use the student's name or \"eleven\" "
+    "(\"the student\"). Never use first-person on the student's behalf "
+    "(no \"jeg\", no \"mig\").\n"
+    "2. Quote observed behaviors, not interpretations of internal states.\n"
+    "   - Good: \"Eleven blev ved sit bord under hele lektionen og deltog "
+    "i samlingen.\"\n"
+    "   - Good: \"Stine virkede urolig efter frokost, men fandt ro efter "
+    "ca. 10 minutter ved hjælp af sansestimulering.\"\n"
+    "   - Wrong (first-person on the student's behalf): \"Jeg var rolig "
+    "i dag.\"\n"
+    "   - Wrong (internal-state guess): \"Eleven følte sig glad.\"\n"
+    "3. Draft, not finished document. The teacher will review before "
+    "sharing. Flag gaps (\"no observations were captured during PE\") and "
+    "recommend next observations; do not paper over missing data.\n"
+    "\n"
+    "Write the response IN DANISH. The teacher, parents, and school are "
+    "Danish. All four section fields must be Danish prose, regardless of "
+    "what language any individual note happens to be written in.\n"
+)
+```
 
-This update lands in the same commit as the `language` parameter and the
-error-envelope cleanup below — it's the same file, same review surface.
+This update lands in the same commit as the error-envelope cleanup
+below — same file, same review surface.
 
-### `/summary` — language plumbing
+### `/summary` — no language parameter in v1.1
 
-The summary endpoint accepts the list of today's notes for a student and
-returns four sections. Add an optional `language` field on the request
-body (ISO 639-1). Backend uses it to instruct Claude:
-
-> "Write the response in {language}. Maintain the four-section structure
-> regardless."
-
-Mobile computes the dominant language client-side from the notes table
-(`SELECT language, COUNT(*) FROM notes WHERE student_id = ? AND
-date(created_at) = date('now') GROUP BY language ORDER BY 2 DESC LIMIT 1`)
-and passes it. If the query returns no language (all text notes), use
-`primary_language` from Settings.
+Danish is hardcoded in the system prompt above, so the request body does
+not get a `language` field in this slice. Mobile keeps its existing
+`/summary` request shape (`student_name`, `notes`). When we eventually
+add multi-language support (post-v1.1), the prompt will move the Danish
+instruction into a parameterized line and the mobile client will start
+passing a language code; the data model already supports that path
+because `notes.language` is captured at transcription time (see below).
 
 ### Error envelope cleanup
 
@@ -444,9 +551,9 @@ out the layout).
 | `useCaptureStore.cancel` deletes the audio file | unit (jest, mocked fs) | same | Don't leak files |
 | `addNote` accepts the new `language` column | unit | `db/__tests__/db.test.ts` (extend) | Schema migration safety |
 | Migration adds `language` + `audio_uri` columns idempotently | unit | `db/__tests__/db.test.ts` (new) | Don't crash on re-run |
-| Backend dominant-language query | unit | `db/__tests__/language.test.ts` (new) | Logic for picking summary language |
-| `/summary` request includes `language` field | unit | `api/__tests__/summary.test.ts` (extend) | Backend contract |
-| `/transcribe` response includes `language` (backend) | pytest | `backend/tests/test_transcribe.py` (extend) | Backend contract |
+| `/transcribe` response includes Whisper's `language` field (backend) | pytest | `backend/tests/test_transcribe.py` (extend) | Backend contract; data captured even if unused in v1.1 |
+| `notes` schema accepts `language` (mobile) | unit | `db/__tests__/db.test.ts` (extend) | Schema-shape test, no business logic |
+| All UI labels resolve through `lib/copy.ts` (mobile) | unit | `lib/__tests__/copy.test.ts` (new) | Prevents inline Danish from sneaking back into JSX during follow-up edits |
 | Friendly error message for Anthropic 5xx (backend) | pytest | `backend/tests/test_summary.py` (extend) | No raw repr leaking |
 | System prompt produces third-person, observational language for terse Danish notes | pytest (snapshot-style with a recorded Anthropic response, or a fast `claude-haiku-4-5` live call gated by `ANTHROPIC_API_KEY`) | `backend/tests/test_summary.py` (extend) | The bug the user hit: "Det går fint i dag." → ensure no first-person ("she said", "I feel") in the response |
 
@@ -488,22 +595,23 @@ long-press = text is not visually labeled. Mitigation:
 
 ## Files touched (rough list, for plan estimation)
 
-Mobile (~9 files):
+Mobile (~13 files):
 
 ```
-mobile/app/index.tsx                       (edit — voice-first tile rendering, toast)
-mobile/app/note/[studentId].tsx            (edit — wire mic chip, recording bar, swipe dismiss)
-mobile/app/settings.tsx                    (edit — primary_language row)
-mobile/app/summary.tsx                     (edit — friendlier error render, retry)
+mobile/lib/copy.ts                         (new — Danish UI strings)
+mobile/app/index.tsx                       (edit — voice-first tile rendering, toast, copy)
+mobile/app/note/[studentId].tsx            (edit — wire mic chip, recording bar, swipe dismiss, copy)
+mobile/app/settings.tsx                    (edit — copy only; no language row)
+mobile/app/summary.tsx                     (edit — friendlier error render, retry, copy)
+mobile/app/onboarding.tsx                  (edit — gesture line, copy)
 mobile/components/StudentTile.tsx          (edit — disabled prop, onLongPress)
 mobile/components/RecordingTile.tsx        (new)
 mobile/components/RecordingBar.tsx         (new — reusable, used in modal)
 mobile/components/ToastUndoEdit.tsx        (new)
 mobile/store/useCaptureStore.ts            (new)
-mobile/db/db.ts                            (edit — migration, language col, audio_uri col, primary_language setting)
+mobile/db/db.ts                            (edit — migration, language col, audio_uri col, gesture_hint_dismissed setting)
 mobile/lib/audio.ts                        (edit — pass through Whisper language; orphan-cleanup respects audio_uri)
 mobile/api/transcribe.ts                   (new or edit — typed response with language)
-mobile/api/summary.ts                      (edit — accept language param)
 ```
 
 Backend (~3 files):
