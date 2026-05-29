@@ -85,15 +85,27 @@ export async function setStudentVoiceAllowed(
 
 export async function addNote(
   db: SQLite.SQLiteDatabase,
-  { studentId, text }: { studentId: string; text: string }
+  {
+    studentId,
+    text,
+    language = null,
+    audioUri = null,
+  }: {
+    studentId: string;
+    text: string;
+    language?: string | null;
+    audioUri?: string | null;
+  }
 ): Promise<{ id: string }> {
   const id = uuid();
   const now = Date.now();
   await db.runAsync(
-    'INSERT INTO notes (id, student_id, text, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    'INSERT INTO notes (id, student_id, text, language, audio_uri, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
     id,
     studentId,
     text,
+    language,
+    audioUri,
     now,
     now
   );

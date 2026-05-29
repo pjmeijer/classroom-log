@@ -157,6 +157,58 @@ describe('settings', () => {
   });
 });
 
+describe('addNote', () => {
+  it('persists language and audio_uri when supplied', async () => {
+    const db = await openTestDb();
+    await migrate(db);
+    await addStudent(db, { name: 'Stine' });
+    const students = await listActiveStudents(db);
+    const sid = students[0].id;
+    const { id } = await addNote(db, {
+      studentId: sid,
+      text: 'Det går fint i dag.',
+      language: 'danish',
+      audioUri: null,
+    });
+    const row = await getNote(db, id);
+    expect(row?.text).toBe('Det går fint i dag.');
+    expect(row?.language).toBe('danish');
+    expect(row?.audio_uri).toBeNull();
+    await db.closeAsync();
+  });
+
+  it('persists audio_uri for failed transcription notes', async () => {
+    const db = await openTestDb();
+    await migrate(db);
+    await addStudent(db, { name: 'Stine' });
+    const sid = (await listActiveStudents(db))[0].id;
+    const { id } = await addNote(db, {
+      studentId: sid,
+      text: '(fejl under transskribering — tryk på noten for at prøve igen)',
+      language: null,
+      audioUri: 'file:///cache/abc.m4a',
+    });
+    const row = await getNote(db, id);
+    expect(row?.audio_uri).toBe('file:///cache/abc.m4a');
+    await db.closeAsync();
+  });
+
+  it('still accepts text-only calls (existing callers unchanged)', async () => {
+    const db = await openTestDb();
+    await migrate(db);
+    await addStudent(db, { name: 'Stine' });
+    const sid = (await listActiveStudents(db))[0].id;
+    const { id } = await addNote(db, {
+      studentId: sid,
+      text: 'typed note',
+    });
+    const row = await getNote(db, id);
+    expect(row?.language).toBeNull();
+    expect(row?.audio_uri).toBeNull();
+    await db.closeAsync();
+  });
+});
+
 describe('migrations', () => {
   it('refuses to run when user_version is newer than the app supports', async () => {
     const future = await SQLite.openDatabaseAsync(':memory:');
