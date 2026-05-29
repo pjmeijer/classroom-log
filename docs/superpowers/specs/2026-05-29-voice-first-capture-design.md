@@ -12,6 +12,12 @@ editing and longer entries. Wire the recorder for real (Task 14 from the v1
 plan), make the summary respond in the language the teacher actually used,
 and stop displaying raw Python repr when an upstream API error bubbles up.
 
+The summary must also read as **observations by the teacher about the
+student** — never as the student's own voice. The current prompt allows
+Claude to slip into first-person ("she said…") when notes are terse
+Danish; this slice tightens the system prompt so observation stance is
+enforced. See "/summary — system prompt" below.
+
 After this slice ships, a teacher walking around a classroom can:
 
 1. Glance at the home screen → tap a student tile.
@@ -28,6 +34,14 @@ No navigation, no extra page, no keyboard, ~3 seconds.
   language; we do not translate Danish notes into English on demand.
 - **School-specific report templates.** Captured as a future surface that
   will read `primary_language` from Settings; not built here.
+- **Per-student care plan / IEP context.** Each student will eventually
+  have a plan document (think IEP — Individualized Education Program)
+  that the summary frames observations against ("does the day's behavior
+  support the plan, or does the plan need adjustment?"). The data model
+  here doesn't preclude this — `students` already has stable IDs and the
+  summary endpoint already accepts a per-student request — but the plan
+  document and its prompt-template integration are explicitly out of
+  scope for v1.1.
 - **Voice activity detection (auto-stop on silence).** Explicit Stop only.
 - **Editing notes inline on the home screen.** Edit still happens via the
   modal.
@@ -328,6 +342,49 @@ object includes a `language` field. Surface it:
 `backend/app/routes/transcribe.py` change is a one-liner on the response
 shape. Mobile reads the new field and stores it on the note row.
 
+### `/summary` — system prompt locks the observational stance
+
+**Problem caught on first device test:** Claude interpreted a terse Danish
+note (`"Det går fint i dag."` — could be read either as Stine saying "I'm
+doing fine today" or the teacher writing "[Stine] is doing fine today") as
+the student's own voice and wrote the summary partly in first-person
+("she said this", "she felt that"). That's the wrong stance. The notes
+are written BY the teacher OBSERVING the student.
+
+**Fix:** rewrite `SYSTEM_PROMPT` in
+`backend/app/clients/anthropic_client.py:31` to make agency explicit.
+Replace the current prompt with something like:
+
+> You are an assistant to a special-education teacher. You will receive
+> that day's **observation notes** — brief notes that the teacher has
+> written (or dictated) to record what she observed about one student
+> during the day. The notes are the teacher's third-person observations of
+> the student's behavior. They are NOT the student's own voice, NOT a
+> transcript of the student speaking, and NOT the student's
+> introspection. Even when a note is terse and looks first-person (e.g.
+> "doing fine today"), the implied subject is the student, observed by
+> the teacher.
+>
+> Produce a four-section draft using the `produce_summary` tool, written
+> from the teacher's observational stance:
+>
+> - **Third-person about the student.** Use the student's name or "the
+>   student" / "the student appeared to" / "the teacher noted". Never
+>   use first-person on the student's behalf.
+> - **Quote observed behaviors, not interpretations of internal states.**
+>   ("The student remained at her desk for the full lesson" — yes.
+>   "The student felt calm" — no, unless the note explicitly says so.)
+> - **Match the language of the notes.** If today's notes are in Danish,
+>   write the summary in Danish. If primarily another language, use
+>   that. If the language is ambiguous, default to the language the
+>   request specifies.
+> - **Draft, not finished document.** The teacher will review before
+>   sharing. Flag gaps and recommend next observations, don't paper over
+>   missing data.
+
+This update lands in the same commit as the `language` parameter and the
+error-envelope cleanup below — it's the same file, same review surface.
+
 ### `/summary` — language plumbing
 
 The summary endpoint accepts the list of today's notes for a student and
@@ -391,6 +448,7 @@ out the layout).
 | `/summary` request includes `language` field | unit | `api/__tests__/summary.test.ts` (extend) | Backend contract |
 | `/transcribe` response includes `language` (backend) | pytest | `backend/tests/test_transcribe.py` (extend) | Backend contract |
 | Friendly error message for Anthropic 5xx (backend) | pytest | `backend/tests/test_summary.py` (extend) | No raw repr leaking |
+| System prompt produces third-person, observational language for terse Danish notes | pytest (snapshot-style with a recorded Anthropic response, or a fast `claude-haiku-4-5` live call gated by `ANTHROPIC_API_KEY`) | `backend/tests/test_summary.py` (extend) | The bug the user hit: "Det går fint i dag." → ensure no first-person ("she said", "I feel") in the response |
 
 Manual / on-device:
 - Tap a tile → recording state visible → stop → toast appears → tap Edit → modal opens with transcript.
