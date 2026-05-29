@@ -1,5 +1,7 @@
+import * as SQLite from 'expo-sqlite';
 import { AudioModule, useAudioRecorder, RecordingPresets, type AudioRecorder } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
+import { getNotesWithAudioUri } from '../db/db';
 
 export async function ensurePermission(): Promise<boolean> {
   const status = await AudioModule.requestRecordingPermissionsAsync();
@@ -32,9 +34,42 @@ export async function deleteRecording(uri: string): Promise<void> {
   }
 }
 
-export async function cleanupOrphanRecordings(): Promise<void> {
+// Best-effort "drop this recording on the floor" used by every cancel /
+// error path (home tile cancel, modal cancel, modal-dismiss-while-
+// recording, recorder errors during start). Stops the recorder (if it's
+// recording) and deletes the resulting file. Never throws.
+export async function discardRecording(rec: AudioRecorder): Promise<void> {
+  try { await rec.stop(); } catch { /* might not have started or already stopped */ }
+  const uri = rec.uri;
+  if (!uri) return;
+  await deleteRecording(uri);
+}
+
+function basename(p: string): string {
+  // Works for both `file:///a/b/c.m4a` and `/a/b/c.m4a`.
+  const noQuery = p.split('?')[0];
+  const idx = noQuery.lastIndexOf('/');
+  return idx >= 0 ? noQuery.slice(idx + 1) : noQuery;
+}
+
+export async function cleanupOrphanRecordings(
+  db: SQLite.SQLiteDatabase
+): Promise<void> {
   const dir = FileSystem.cacheDirectory;
   if (!dir) return;
+
+  // Build the keep-set by basename so file:// vs plain-path mismatches
+  // don't accidentally orphan a referenced file.
+  let keep = new Set<string>();
+  try {
+    const uris = await getNotesWithAudioUri(db);
+    keep = new Set(uris.map(basename));
+  } catch {
+    // If db read fails, fail safe by keeping everything — better to leak
+    // than to delete a file that backs a real note.
+    return;
+  }
+
   let entries: string[] = [];
   try {
     entries = await FileSystem.readDirectoryAsync(dir);
@@ -42,8 +77,8 @@ export async function cleanupOrphanRecordings(): Promise<void> {
     return;
   }
   for (const name of entries) {
-    if (name.endsWith('.m4a') || name.endsWith('.caf')) {
-      await FileSystem.deleteAsync(dir + name, { idempotent: true });
-    }
+    if (!(name.endsWith('.m4a') || name.endsWith('.caf'))) continue;
+    if (keep.has(name)) continue;
+    await FileSystem.deleteAsync(dir + name, { idempotent: true });
   }
 }

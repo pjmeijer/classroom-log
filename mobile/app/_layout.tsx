@@ -32,7 +32,7 @@ function RouterGate({ children }: { children: React.ReactNode }) {
       }
       setReady(true);
       SplashScreen.hideAsync().catch(() => {});
-      cleanupOrphanRecordings().catch(() => {});
+      cleanupOrphanRecordings(db).catch(() => {});
     })();
   }, [db]);
 

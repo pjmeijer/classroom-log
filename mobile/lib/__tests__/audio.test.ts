@@ -24,6 +24,7 @@ jest.mock('expo-file-system/legacy', () => ({
 }));
 
 import { ensurePermission, cleanupOrphanRecordings } from '../audio';
+import * as dbModule from '../../db/db';
 
 describe('audio.ensurePermission', () => {
   it('returns true when granted', async () => {
@@ -35,7 +36,69 @@ describe('audio.ensurePermission', () => {
 describe('audio.cleanupOrphanRecordings', () => {
   it('deletes any pre-existing .m4a files in the cache dir', async () => {
     const FS = require('expo-file-system/legacy');
-    await cleanupOrphanRecordings();
+    jest.spyOn(dbModule, 'getNotesWithAudioUri').mockResolvedValue([]);
+    await cleanupOrphanRecordings({} as any);
     expect(FS.deleteAsync).toHaveBeenCalled();
+  });
+});
+
+describe('cleanupOrphanRecordings — preserves notes.audio_uri', () => {
+  it('skips files whose basename matches a stored audio_uri (file://… form)', async () => {
+    const fs = require('expo-file-system/legacy');
+    fs.cacheDirectory = '/cache/';
+    fs.readDirectoryAsync.mockResolvedValue(['a.m4a', 'b.m4a', 'c.m4a']);
+    fs.deleteAsync.mockClear();
+
+    jest.spyOn(dbModule, 'getNotesWithAudioUri')
+      .mockResolvedValue(['file:///somewhere/b.m4a']);
+
+    const { cleanupOrphanRecordings } = require('../audio');
+    await cleanupOrphanRecordings({} as any);
+
+    const deletedPaths = fs.deleteAsync.mock.calls.map((c: any) => c[0]);
+    expect(deletedPaths).toContain('/cache/a.m4a');
+    expect(deletedPaths).toContain('/cache/c.m4a');
+    expect(deletedPaths).not.toContain('/cache/b.m4a');
+  });
+
+  it('skips files whose basename matches a stored audio_uri (plain path form)', async () => {
+    const fs = require('expo-file-system/legacy');
+    fs.cacheDirectory = '/cache/';
+    fs.readDirectoryAsync.mockResolvedValue(['x.m4a', 'y.m4a']);
+    fs.deleteAsync.mockClear();
+    jest.spyOn(dbModule, 'getNotesWithAudioUri').mockResolvedValue(['/elsewhere/y.m4a']);
+
+    const { cleanupOrphanRecordings } = require('../audio');
+    await cleanupOrphanRecordings({} as any);
+
+    const deletedPaths = fs.deleteAsync.mock.calls.map((c: any) => c[0]);
+    expect(deletedPaths).toContain('/cache/x.m4a');
+    expect(deletedPaths).not.toContain('/cache/y.m4a');
+  });
+});
+
+describe('discardRecording', () => {
+  it('stops the recorder and deletes the resulting file (idempotent on missing)', async () => {
+    const fs = require('expo-file-system/legacy');
+    fs.deleteAsync.mockClear();
+    const recorder: any = {
+      stop: jest.fn().mockResolvedValue(undefined),
+      uri: '/cache/zz.m4a',
+    };
+    const { discardRecording } = require('../audio');
+    await discardRecording(recorder);
+    expect(recorder.stop).toHaveBeenCalled();
+    expect(fs.deleteAsync).toHaveBeenCalledWith('/cache/zz.m4a', { idempotent: true });
+  });
+
+  it('does not throw when recorder.stop rejects or uri is missing', async () => {
+    const fs = require('expo-file-system/legacy');
+    fs.deleteAsync.mockClear();
+    const recorder: any = {
+      stop: jest.fn().mockRejectedValue(new Error('boom')),
+      uri: null,
+    };
+    const { discardRecording } = require('../audio');
+    await expect(discardRecording(recorder)).resolves.toBeUndefined();
   });
 });
