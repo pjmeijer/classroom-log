@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, Alert } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { addNote, updateNote, deleteNote, getNote, listActiveStudents, getSetting, Student } from '../../db/db';
 import { DiscardSheet } from '../../components/DiscardSheet';
+import { RecordingBar } from '../../components/RecordingBar';
+import { useCaptureStore } from '../../store/useCaptureStore';
+import { ensurePermission, useRecorder, startRecording, stopRecording, deleteRecording, discardRecording } from '../../lib/audio';
+import { fetchTranscript } from '../../api/transcribe';
+import { DEFAULT_API_BASE_URL } from '../../api/config';
 import { colors, fonts, spacing, radii, shadows } from '../../lib/theme';
 import { copy } from '../../lib/copy';
 
@@ -14,13 +19,18 @@ export default function NoteModal() {
   const db = useSQLiteContext();
   const router = useRouter();
   const navigation = useNavigation();
+  const recorder = useRecorder();
   const { studentId, noteId } = useLocalSearchParams<{ studentId: string; noteId?: string }>();
   const [student, setStudent] = useState<Student | null>(null);
   const [voiceOn, setVoiceOn] = useState(true);
+  const [apiUrl, setApiUrl] = useState('');
   const [text, setText] = useState('');
   const [initialText, setInitialText] = useState('');
   const [discardVisible, setDiscardVisible] = useState(false);
+  const [selection, setSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
   const pendingActionRef = useRef<unknown>(null);
+  const recording = useCaptureStore(s => s.recording);
+  const recordingInThisModal = recording?.studentId === studentId;
 
   useEffect(() => {
     (async () => {
@@ -28,11 +38,13 @@ export default function NoteModal() {
       const s = all.find(x => x.id === studentId);
       setStudent(s || null);
       setVoiceOn((await getSetting(db, 'voice_on')) !== '0');
+      setApiUrl((await getSetting(db, 'api_base_url')) || DEFAULT_API_BASE_URL);
       if (noteId) {
         const n = await getNote(db, noteId);
         if (n) {
           setText(n.text);
           setInitialText(n.text);
+          setSelection({ start: n.text.length, end: n.text.length });
         }
       }
     })();
@@ -43,27 +55,39 @@ export default function NoteModal() {
   const allowLeaveRef = useRef(false);
 
   useEffect(() => {
-    const unsubscribe = navigation.addListener('beforeRemove', (e: any) => {
+    navigation.setOptions({ gestureEnabled: !(dirty || recordingInThisModal) });
+  }, [navigation, dirty, recordingInThisModal]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', async (e: any) => {
+      if (recording !== null && recordingInThisModal) {
+        e.preventDefault();
+        const r = useCaptureStore.getState().cancel();
+        if (r) await discardRecording(r.recorder);
+        navigation.dispatch(e.data.action);
+        return;
+      }
       if (!dirty || allowLeaveRef.current) return;
       e.preventDefault();
       pendingActionRef.current = e.data.action;
       setDiscardVisible(true);
     });
     return unsubscribe;
-  }, [navigation, dirty]);
+  }, [navigation, dirty, recording, recordingInThisModal]);
 
   function dispatchPending() {
     allowLeaveRef.current = true;
     const action = pendingActionRef.current;
     pendingActionRef.current = null;
-    if (action) {
-      navigation.dispatch(action as any);
-    } else {
-      router.back();
-    }
+    if (action) navigation.dispatch(action as any);
+    else router.back();
   }
 
   function handleClose() {
+    if (recording !== null && recordingInThisModal) {
+      router.back();
+      return;
+    }
     if (dirty) setDiscardVisible(true);
     else {
       allowLeaveRef.current = true;
@@ -84,92 +108,129 @@ export default function NoteModal() {
   }
 
   async function handleDelete() {
-    Alert.alert(
-      copy.deleteConfirmTitle,
-      copy.deleteConfirmBody,
-      [
-        { text: copy.cancel, style: 'cancel' },
-        { text: copy.delete, style: 'destructive', onPress: async () => { if (noteId) { await deleteNote(db, noteId); allowLeaveRef.current = true; router.back(); } } },
-      ],
-    );
+    Alert.alert(copy.deleteConfirmTitle, copy.deleteConfirmBody, [
+      { text: copy.cancel, style: 'cancel' },
+      { text: copy.delete, style: 'destructive', onPress: async () => {
+        if (noteId) {
+          await deleteNote(db, noteId);
+          allowLeaveRef.current = true;
+          router.back();
+        }
+      } },
+    ]);
   }
 
-  const micAllowed = voiceOn && student?.recording_enabled === 1;
+  async function handleMicTap() {
+    if (recording !== null) return;
+    if (!voiceOn || student?.recording_enabled === 0) return;
+    const granted = await ensurePermission();
+    if (!granted) {
+      Alert.alert(copy.micDeniedSnack);
+      return;
+    }
+    const started = useCaptureStore.getState().start(studentId, recorder);
+    if (!started) return;
+    try {
+      await startRecording(recorder);
+    } catch {
+      await discardRecording(recorder);
+      useCaptureStore.getState().cancel();
+    }
+  }
+
+  async function handleStopAndAppend() {
+    const r = useCaptureStore.getState().stop();
+    if (!r) return;
+    const audio = await stopRecording(r.recorder);
+    if (!audio) return;
+    const result = await fetchTranscript(apiUrl, audio.uri);
+    await deleteRecording(audio.uri);
+    if (!result.ok) {
+      Alert.alert(copy.summaryUpstreamError);
+      return;
+    }
+    const transcript = result.text.trim();
+    if (!transcript) return;
+    setText(prev => (prev.slice(0, selection.start) + transcript + prev.slice(selection.end)).slice(0, MAX_LEN));
+    const newPos = Math.min(selection.start + transcript.length, MAX_LEN);
+    setSelection({ start: newPos, end: newPos });
+  }
+
+  async function handleBarCancel() {
+    const r = useCaptureStore.getState().cancel();
+    if (!r) return;
+    await discardRecording(r.recorder);
+  }
+
+  const micAllowed = voiceOn && student?.recording_enabled === 1 && recording === null;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <View style={styles.header}>
-        <Text style={styles.title}>{student?.name ?? copy.noteHeaderNote}</Text>
-        <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'center' }}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={styles.header}>
+          <Text style={styles.title}>{student?.name ?? copy.noteHeaderNote}</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'center' }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={copy.recording}
+              disabled={!micAllowed}
+              onPress={handleMicTap}
+              style={[styles.micToggle, { backgroundColor: micAllowed ? colors.accentSoft : colors.surface2, opacity: micAllowed ? 1 : 0.5 }]}
+            >
+              <Text style={{ fontSize: 14 }}>🎙</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel={copy.cancel} onPress={handleClose}>
+              <Text style={styles.x}>✕</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <TextInput
+          autoFocus
+          multiline
+          value={text}
+          onChangeText={(t) => setText(t.slice(0, MAX_LEN))}
+          onSelectionChange={(e) => setSelection(e.nativeEvent.selection)}
+          selection={selection}
+          placeholder={copy.noteTextarea}
+          placeholderTextColor={colors.inkMuted}
+          style={styles.textarea}
+        />
+
+        {recordingInThisModal && (
+          <RecordingBar startedAt={recording!.startedAt} onStop={handleStopAndAppend} onCancel={handleBarCancel} />
+        )}
+
+        <View style={styles.actions}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={micAllowed ? 'Voice enabled' : 'Voice disabled'}
-            disabled={!micAllowed}
-            style={[styles.micToggle, { backgroundColor: micAllowed ? colors.accentSoft : colors.surface2, opacity: micAllowed ? 1 : 0.5 }]}
+            onPress={handleSave}
+            disabled={!text.trim()}
+            style={[styles.saveBtn, !text.trim() && { opacity: 0.5 }, shadows.soft]}
           >
-            <Text style={{ fontSize: 14 }}>🎙</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close note"
-            onPress={handleClose}
-          >
-            <Text style={styles.x}>✕</Text>
+            <Text style={styles.saveLabel}>{editing ? copy.update : copy.save}</Text>
           </Pressable>
         </View>
-      </View>
 
-      <TextInput
-        autoFocus
-        multiline
-        value={text}
-        onChangeText={(t) => setText(t.slice(0, MAX_LEN))}
-        placeholder={copy.noteTextarea}
-        placeholderTextColor={colors.inkMuted}
-        style={styles.textarea}
-      />
-      {text.length >= MAX_LEN && (
-        <Text style={styles.capWarn}>Note is at the {MAX_LEN.toLocaleString()}-character limit.</Text>
-      )}
+        {editing && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={copy.holdToDelete}
+            onLongPress={handleDelete}
+            delayLongPress={800}
+            style={styles.deleteBtn}
+          >
+            <Text style={styles.deleteLabel}>{copy.holdToDelete}</Text>
+          </Pressable>
+        )}
 
-      <View style={styles.actions}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Start recording"
-          disabled={!micAllowed}
-          onPress={() => Alert.alert('Coming up next', 'Voice recording is wired in Task 14.')}
-          style={[styles.mic, { backgroundColor: micAllowed ? colors.accent : colors.surface2, opacity: micAllowed ? 1 : 0.5 }]}
-        >
-          <Text style={styles.micIcon}>🎙</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={handleSave}
-          disabled={!text.trim()}
-          style={[styles.saveBtn, !text.trim() && { opacity: 0.5 }, shadows.soft]}
-        >
-          <Text style={styles.saveLabel}>{editing ? copy.update : copy.save}</Text>
-        </Pressable>
-      </View>
-
-      {editing && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Hold to delete this note"
-          onLongPress={handleDelete}
-          delayLongPress={800}
-          style={styles.deleteBtn}
-        >
-          <Text style={styles.deleteLabel}>{copy.holdToDelete}</Text>
-        </Pressable>
-      )}
-
-      <DiscardSheet
-        visible={discardVisible}
-        onSave={async () => { setDiscardVisible(false); await handleSave(); }}
-        onDiscard={handleDiscard}
-        onKeepEditing={() => setDiscardVisible(false)}
-      />
+        <DiscardSheet
+          visible={discardVisible}
+          onSave={async () => { setDiscardVisible(false); await handleSave(); }}
+          onDiscard={handleDiscard}
+          onKeepEditing={() => setDiscardVisible(false)}
+        />
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -180,10 +241,7 @@ const styles = StyleSheet.create({
   micToggle: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   x: { fontSize: 22, color: colors.inkMuted },
   textarea: { flex: 1, padding: spacing.lg, fontFamily: fonts.body, fontSize: 16, color: colors.ink, textAlignVertical: 'top' },
-  capWarn: { fontFamily: fonts.body, fontSize: 12, color: colors.danger, textAlign: 'center', paddingBottom: spacing.sm },
   actions: { flexDirection: 'row', gap: spacing.md, padding: spacing.lg, alignItems: 'center' },
-  mic: { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center' },
-  micIcon: { fontSize: 24, color: colors.accentText },
   saveBtn: { flex: 1, backgroundColor: colors.accent2, paddingVertical: spacing.md, borderRadius: radii.md, alignItems: 'center' },
   saveLabel: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.accentText },
   deleteBtn: { alignSelf: 'center', padding: spacing.md, marginBottom: spacing.lg },
