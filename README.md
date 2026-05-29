@@ -2,7 +2,7 @@
 
 A note-taking tool for special-education teachers. Tap a student, speak or type, save. Then let Claude draft a daily summary for review.
 
-Built as a two-piece demo: a React Native (Expo SDK 56) phone app and a FastAPI proxy that talks to OpenAI Whisper (for voice → text) and Anthropic Claude (for daily summaries). All notes live on the phone; the proxy holds nothing.
+Built as a two-piece demo: a React Native (Expo SDK 54) phone app and a FastAPI proxy that talks to OpenAI Whisper (for voice → text) and Anthropic Claude (for daily summaries). All notes live on the phone; the proxy holds nothing.
 
 ## Architecture
 
@@ -79,11 +79,17 @@ cd mobile
 # First time only
 npm install
 
+# Optional: set the backend ngrok URL as the build-time default
+Copy-Item .env.example .env
+notepad .env   # paste your https://*.ngrok-free.app URL
+
 # Start the Metro bundler with the tunnel transport
 npm start -- --tunnel
 ```
 
-A QR code appears. Open **Expo Go** on your phone and scan it. The app opens at the Onboarding screen on first launch.
+A QR code appears. Open **App Store Expo Go** on your phone and scan it. The app opens at the Onboarding screen on first launch.
+
+**Heads up — two tunnels.** `ngrok http 8000` exposes your backend; `expo start --tunnel` exposes Metro so Expo Go can fetch the JS bundle. Both default to anonymous ngrok and share its rate limits. If Metro errors with `ngrok tunnel took too long to connect`, retry, or drop to LAN (`npm start` without `--tunnel`) if your phone is on the same Wi-Fi. See `mobile/README.md` for the full troubleshooting list including the optional `NGROK_AUTHTOKEN`.
 
 In the app:
 1. **Onboarding** — read the privacy disclosure, tap "Allow microphone", tap "Start using the app"
@@ -114,7 +120,7 @@ classroom-log/
 │   │   └── clients/         # Anthropic + OpenAI wrappers
 │   ├── tests/
 │   └── requirements.txt
-├── mobile/                  # Expo SDK 56 React Native app
+├── mobile/                  # Expo SDK 54 React Native app
 │   ├── app/                 # expo-router file-based routes
 │   │   ├── _layout.tsx      # SQLiteProvider + RouterGate + onboarding redirect
 │   │   ├── index.tsx        # Home (roster + today's notes + FAB)
