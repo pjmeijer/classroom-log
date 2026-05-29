@@ -8,6 +8,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { colors, fonts, spacing, radii, shadows } from '../lib/theme';
 import Constants from 'expo-constants';
 import { DEFAULT_API_BASE_URL } from '../api/config';
+import { copy } from '../lib/copy';
 
 export default function Settings() {
   const db = useSQLiteContext();
@@ -95,20 +96,20 @@ export default function Settings() {
         >
           <Text style={{ fontFamily: fonts.body, color: colors.accent }}>← Back</Text>
         </Pressable>
-        <Text style={styles.h1}>Settings</Text>
+        <Text style={styles.h1}>{copy.settings}</Text>
 
         <Text style={styles.sectionHead}>Students</Text>
         <View style={styles.addRow}>
           <TextInput
             value={newName}
             onChangeText={setNewName}
-            placeholder="Student name"
+            placeholder={copy.studentName}
             placeholderTextColor={colors.inkMuted}
             style={styles.input}
             onSubmitEditing={handleAdd}
             returnKeyType="done"
           />
-          <PrimaryButton label="Add" onPress={handleAdd} variant="primary" />
+          <PrimaryButton label={copy.addStudent} onPress={handleAdd} variant="primary" />
         </View>
         {students.map((s) => (
           <View key={s.id} style={styles.studentRow}>
@@ -137,11 +138,11 @@ export default function Settings() {
           <Switch value={llmEnabled} onValueChange={async (v) => { await setSetting(db, 'llm_enabled', v ? '1' : '0'); setLlmEnabled(v); }} />
         </View>
 
-        <Text style={styles.sectionHead}>Server</Text>
+        <Text style={styles.sectionHead}>{copy.serverUrl}</Text>
         <TextInput value={apiUrl} onChangeText={setApiUrl} placeholder="https://your-tunnel.ngrok.app" autoCapitalize="none" style={styles.input} />
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
           <View style={{ flex: 1 }}><PrimaryButton label="Save URL" onPress={saveApiUrl} variant="secondary" /></View>
-          <View style={{ flex: 1 }}><PrimaryButton label="Test connection" onPress={testConnection} variant="ghost" /></View>
+          <View style={{ flex: 1 }}><PrimaryButton label={copy.testConnection} onPress={testConnection} variant="ghost" /></View>
         </View>
         <Text style={{ fontFamily: fonts.body, fontSize: 12, color: colors.inkMuted, marginTop: spacing.sm }}>Status: {healthStatus}</Text>
 

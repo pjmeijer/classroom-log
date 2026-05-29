@@ -9,6 +9,7 @@ import { NoteRow } from '../components/NoteRow';
 import { StatusPill } from '../components/StatusPill';
 import { colors, fonts, spacing, radii } from '../lib/theme';
 import { localYmd } from '../lib/dates';
+import { copy } from '../lib/copy';
 
 export default function Home() {
   const db = useSQLiteContext();
@@ -34,7 +35,7 @@ export default function Home() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
         <View style={styles.topBar}>
-          <Text style={styles.title}>Classroom Log</Text>
+          <Text style={styles.title}>{copy.appTitle}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
             <StatusPill ok={true /* wired up in Task 15 */} />
             <Link href="/settings" asChild>
@@ -46,13 +47,13 @@ export default function Home() {
         </View>
 
         <View style={styles.row}>
-          <Text style={styles.rowLabel}>Voice off</Text>
+          <Text style={styles.rowLabel}>{copy.voiceOff}</Text>
           <Switch value={!voiceOn} onValueChange={(v) => toggleVoice(!v)} />
         </View>
 
-        <Text style={styles.sectionHead}>Roster</Text>
+        <Text style={styles.sectionHead}>{copy.roster}</Text>
         {students.length === 0 ? (
-          <Text style={styles.empty}>No students yet. Add your first one in Settings.</Text>
+          <Text style={styles.empty}>{copy.emptyRoster}</Text>
         ) : (
           <View style={styles.grid}>
             {students.map((s, i) => (
@@ -61,9 +62,9 @@ export default function Home() {
           </View>
         )}
 
-        <Text style={styles.sectionHead}>Today's notes</Text>
+        <Text style={styles.sectionHead}>{copy.todaysNotes}</Text>
         {notes.length === 0 ? (
-          <Text style={styles.empty}>No notes today yet.</Text>
+          <Text style={styles.empty}>{copy.emptyNotes}</Text>
         ) : (
           notes.map((n) => (
             <NoteRow key={n.id} studentName={n.student_name} text={n.text} createdAt={n.created_at} onPress={() => router.push(`/note/${n.student_id}?noteId=${n.id}`)} />
@@ -77,7 +78,7 @@ export default function Home() {
         onPress={() => router.push('/summary')}
         style={({ pressed }) => [styles.fab, { opacity: pressed ? 0.85 : 1 }]}
       >
-        <Text style={styles.fabLabel}>＋ Generate Summary</Text>
+        <Text style={styles.fabLabel}>{copy.generateSummary}</Text>
       </Pressable>
     </SafeAreaView>
   );

@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { addNote, updateNote, deleteNote, getNote, listActiveStudents, getSetting, Student } from '../../db/db';
 import { DiscardSheet } from '../../components/DiscardSheet';
 import { colors, fonts, spacing, radii, shadows } from '../../lib/theme';
+import { copy } from '../../lib/copy';
 
 const MAX_LEN = 5000;
 
@@ -84,11 +85,11 @@ export default function NoteModal() {
 
   async function handleDelete() {
     Alert.alert(
-      'Delete this note?',
-      'This cannot be undone.',
+      copy.deleteConfirmTitle,
+      copy.deleteConfirmBody,
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: async () => { if (noteId) { await deleteNote(db, noteId); allowLeaveRef.current = true; router.back(); } } },
+        { text: copy.cancel, style: 'cancel' },
+        { text: copy.delete, style: 'destructive', onPress: async () => { if (noteId) { await deleteNote(db, noteId); allowLeaveRef.current = true; router.back(); } } },
       ],
     );
   }
@@ -98,7 +99,7 @@ export default function NoteModal() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <View style={styles.header}>
-        <Text style={styles.title}>{student?.name ?? 'Note'}</Text>
+        <Text style={styles.title}>{student?.name ?? copy.noteHeaderNote}</Text>
         <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'center' }}>
           <Pressable
             accessibilityRole="button"
@@ -123,7 +124,7 @@ export default function NoteModal() {
         multiline
         value={text}
         onChangeText={(t) => setText(t.slice(0, MAX_LEN))}
-        placeholder={micAllowed ? 'Type or tap the mic to dictate…' : 'Type your note…'}
+        placeholder={copy.noteTextarea}
         placeholderTextColor={colors.inkMuted}
         style={styles.textarea}
       />
@@ -147,7 +148,7 @@ export default function NoteModal() {
           disabled={!text.trim()}
           style={[styles.saveBtn, !text.trim() && { opacity: 0.5 }, shadows.soft]}
         >
-          <Text style={styles.saveLabel}>{editing ? 'Update' : 'Save'}</Text>
+          <Text style={styles.saveLabel}>{editing ? copy.update : copy.save}</Text>
         </Pressable>
       </View>
 
@@ -159,7 +160,7 @@ export default function NoteModal() {
           delayLongPress={800}
           style={styles.deleteBtn}
         >
-          <Text style={styles.deleteLabel}>Hold to delete</Text>
+          <Text style={styles.deleteLabel}>{copy.holdToDelete}</Text>
         </Pressable>
       )}
 

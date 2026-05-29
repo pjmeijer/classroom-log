@@ -6,6 +6,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { setSetting } from '../db/db';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors, fonts, spacing } from '../lib/theme';
+import { copy } from '../lib/copy';
 
 export default function Onboarding() {
   const router = useRouter();
@@ -30,35 +31,29 @@ export default function Onboarding() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.heading}>Welcome to Classroom Log</Text>
+      <Text style={styles.heading}>{copy.onboardingTitle}</Text>
+
       <Text style={styles.paragraph}>
-        A note-taking tool for special-education teachers. Tap a student, speak or type, save. Then let Claude draft a daily summary for review.
+        {copy.privacyDisclosureBody}
       </Text>
 
-      <Text style={styles.subhead}>What stays on the phone</Text>
       <Text style={styles.paragraph}>
-        Typed notes, transcribed text, settings, and your roster all live in a local database on this device only.
+        {copy.privacyDisclosureBody2}
       </Text>
 
-      <Text style={styles.subhead}>What goes to the laptop</Text>
       <Text style={styles.paragraph}>
-        When you record a voice note, audio bytes are sent to the builder's laptop just long enough to transcribe; nothing is written to disk. When you generate a summary, the note text is sent to the laptop for Claude. Nothing is retained after each request returns.
-      </Text>
-
-      <Text style={styles.subhead}>What goes to third parties</Text>
-      <Text style={styles.paragraph}>
-        Audio bytes are sent to OpenAI Whisper for transcription; note text is sent to Anthropic Claude for summaries. Both services state they do not retain API inputs for training.
+        {copy.onboardingGestureLine}
       </Text>
 
       <View style={styles.actions}>
         <PrimaryButton
-          label={micGranted ? 'Microphone allowed' : 'Allow microphone'}
+          label={micGranted ? copy.allowMicrophone : copy.allowMicrophone}
           onPress={requestMic}
           variant={micGranted ? 'secondary' : 'primary'}
           disabled={micGranted}
         />
         <View style={{ height: spacing.md }} />
-        <PrimaryButton label="Start using the app" onPress={continueToApp} variant="primary" />
+        <PrimaryButton label={copy.startUsingApp} onPress={continueToApp} variant="primary" />
       </View>
     </ScrollView>
   );

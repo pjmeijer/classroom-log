@@ -10,6 +10,7 @@ import { DEFAULT_API_BASE_URL } from '../api/config';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors, fonts, spacing, radii, shadows } from '../lib/theme';
 import { localYmd } from '../lib/dates';
+import { copy } from '../lib/copy';
 
 export default function Summary() {
   const db = useSQLiteContext();
@@ -47,7 +48,7 @@ export default function Summary() {
     if (!student) return;
     const notes = await getNotesForStudentInLocalRange(db, studentId, ymd, ymd);
     if (notes.length === 0) {
-      Alert.alert('No notes', `No notes for ${student.name} on the selected day.`);
+      Alert.alert(copy.noNotesAlertTitle, copy.noNotesAlertBody(student.name));
       return;
     }
     setRawNotes(notes.map(n => `${new Date(n.created_at).toLocaleTimeString()} — ${n.text}`).join('\n\n'));
@@ -70,7 +71,7 @@ export default function Summary() {
     }
     const out = `Positives — Draft, review before sharing\n${sections.positives}\n\nConcerns — Draft, review before sharing\n${sections.concerns}\n\nPatterns — Draft, review before sharing\n${sections.patterns}\n\nSuggested next steps — Draft, review before sharing\n${sections.next_steps}`;
     await Clipboard.setStringAsync(out);
-    Alert.alert('Copied', 'Summary copied to clipboard.');
+    Alert.alert(copy.copiedAlertTitle, copy.copiedAlertBody);
   }
 
   return (
@@ -82,13 +83,13 @@ export default function Summary() {
           onPress={() => router.back()}
           style={{ marginBottom: spacing.md }}
         >
-          <Text style={{ fontFamily: fonts.body, color: colors.accent }}>← Back</Text>
+          <Text style={{ fontFamily: fonts.body, color: colors.accent }}>{copy.backToHome}</Text>
         </Pressable>
-        <Text style={styles.h1}>Draft summary</Text>
+        <Text style={styles.h1}>{copy.draftSummary}</Text>
 
         <View style={styles.pickerRow}>
           <View style={styles.pickerCol}>
-            <Text style={styles.pickerLabel}>Student</Text>
+            <Text style={styles.pickerLabel}>{copy.student}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {students.map(s => (
                 <Pressable
@@ -105,10 +106,10 @@ export default function Summary() {
             </ScrollView>
           </View>
         </View>
-        <Text style={styles.dateNote}>Date: {ymd.slice(0,4)}-{ymd.slice(4,6)}-{ymd.slice(6,8)} (today)</Text>
+        <Text style={styles.dateNote}>{copy.date}: {ymd.slice(0,4)}-{ymd.slice(4,6)}-{ymd.slice(6,8)}</Text>
 
         <View style={{ marginTop: spacing.md }}>
-          <PrimaryButton label={loading ? 'Generating…' : 'Generate'} onPress={generate} variant="primary" disabled={loading || !studentId} />
+          <PrimaryButton label={loading ? 'Genererer…' : copy.generate} onPress={generate} variant="primary" disabled={loading || !studentId} />
         </View>
 
         {!llmEnabled && (
@@ -122,8 +123,8 @@ export default function Summary() {
           <View>
             {(['positives', 'concerns', 'patterns', 'next_steps'] as const).map((k) => (
               <View key={k} style={styles.section}>
-                <Text style={styles.sectionTitle}>{({positives:'Positives',concerns:'Concerns',patterns:'Patterns',next_steps:'Suggested next steps'} as any)[k]}</Text>
-                <Text style={styles.draft}>Draft — review before sharing</Text>
+                <Text style={styles.sectionTitle}>{({positives:copy.positives,concerns:copy.concerns,patterns:copy.patterns,next_steps:copy.nextSteps} as any)[k]}</Text>
+                <Text style={styles.draft}>{copy.draftReviewBeforeSharing}</Text>
                 <Text style={styles.sectionBody}>{sections[k]}</Text>
               </View>
             ))}
@@ -132,14 +133,14 @@ export default function Summary() {
 
         {!sections && rawNotes && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Raw notes</Text>
+            <Text style={styles.sectionTitle}>{copy.rawNotes}</Text>
             <Text style={styles.sectionBody}>{rawNotes}</Text>
           </View>
         )}
 
         {(sections || rawNotes) && (
           <View style={{ marginTop: spacing.lg }}>
-            <PrimaryButton label="Copy all" onPress={copyAll} variant="secondary" />
+            <PrimaryButton label={copy.copyAll} onPress={copyAll} variant="secondary" />
           </View>
         )}
       </ScrollView>

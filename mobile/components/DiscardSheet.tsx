@@ -1,6 +1,7 @@
 import { Modal, View, Text, Pressable, StyleSheet } from 'react-native';
 import { PrimaryButton } from './PrimaryButton';
 import { colors, fonts, spacing, radii } from '../lib/theme';
+import { copy } from '../lib/copy';
 
 interface Props {
   visible: boolean;
@@ -14,14 +15,14 @@ export function DiscardSheet({ visible, onSave, onDiscard, onKeepEditing }: Prop
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onKeepEditing}>
       <Pressable style={styles.backdrop} onPress={onKeepEditing} />
       <View style={styles.sheet}>
-        <Text style={styles.heading}>You have unsaved changes</Text>
-        <Text style={styles.body}>Save this note, discard it, or keep editing?</Text>
+        <Text style={styles.heading}>{copy.unsavedChanges}</Text>
+        <Text style={styles.body}>{copy.unsavedBody}</Text>
         <View style={styles.actions}>
-          <PrimaryButton label="Save" onPress={onSave} variant="primary" />
+          <PrimaryButton label={copy.save} onPress={onSave} variant="primary" />
           <View style={{ height: spacing.sm }} />
-          <PrimaryButton label="Discard" onPress={onDiscard} variant="ghost" />
+          <PrimaryButton label={copy.discard} onPress={onDiscard} variant="ghost" />
           <View style={{ height: spacing.sm }} />
-          <PrimaryButton label="Keep editing" onPress={onKeepEditing} variant="secondary" />
+          <PrimaryButton label={copy.keepEditing} onPress={onKeepEditing} variant="secondary" />
         </View>
       </View>
     </Modal>
