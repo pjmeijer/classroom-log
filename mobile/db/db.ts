@@ -191,6 +191,15 @@ export async function getNotesForStudentInLocalRange(
   );
 }
 
+export async function getNotesWithAudioUri(
+  db: SQLite.SQLiteDatabase
+): Promise<string[]> {
+  const rows = await db.getAllAsync<{ audio_uri: string }>(
+    'SELECT audio_uri FROM notes WHERE audio_uri IS NOT NULL'
+  );
+  return rows.map(r => r.audio_uri);
+}
+
 // ---- Settings ------------------------------------------------------------
 
 export async function getSetting(

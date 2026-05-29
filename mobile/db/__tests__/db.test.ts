@@ -14,6 +14,7 @@ import {
   getNotesForStudentInLocalRange,
   getSetting,
   setSetting,
+  getNotesWithAudioUri,
 } from '../db';
 import { migrate } from '../migrations';
 
@@ -221,6 +222,20 @@ describe('migrations', () => {
 async function openTestDb() {
   return SQLite.openDatabaseAsync(':memory:');
 }
+
+describe('getNotesWithAudioUri', () => {
+  it('returns audio_uri values for notes that have one, skips nulls', async () => {
+    const db = await openTestDb();
+    await migrate(db);
+    await addStudent(db, { name: 'Stine' });
+    const sid = (await listActiveStudents(db))[0].id;
+    await addNote(db, { studentId: sid, text: 'text only' });
+    await addNote(db, { studentId: sid, text: 'pending', audioUri: 'file:///cache/a.m4a' });
+    await addNote(db, { studentId: sid, text: 'also pending', audioUri: 'file:///cache/b.m4a' });
+    const uris = await getNotesWithAudioUri(db);
+    expect(uris.sort()).toEqual(['file:///cache/a.m4a', 'file:///cache/b.m4a']);
+  });
+});
 
 describe('migrate v2', () => {
   it('adds notes.language and notes.audio_uri columns at v2', async () => {
