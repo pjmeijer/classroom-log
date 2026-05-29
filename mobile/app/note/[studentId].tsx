@@ -28,6 +28,8 @@ export default function NoteModal() {
   const [initialText, setInitialText] = useState('');
   const [discardVisible, setDiscardVisible] = useState(false);
   const [selection, setSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
+  const [audioUri, setAudioUri] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const pendingActionRef = useRef<unknown>(null);
   const recording = useCaptureStore(s => s.recording);
   const recordingInThisModal = recording?.studentId === studentId;
@@ -44,6 +46,7 @@ export default function NoteModal() {
         if (n) {
           setText(n.text);
           setInitialText(n.text);
+          setAudioUri(n.audio_uri ?? null);
           setSelection({ start: n.text.length, end: n.text.length });
         }
       }
@@ -162,6 +165,27 @@ export default function NoteModal() {
     await discardRecording(r.recorder);
   }
 
+  async function handleRetryTranscription() {
+    if (!audioUri || !noteId || retrying || recording !== null) return;
+    setRetrying(true);
+    try {
+      const result = await fetchTranscript(apiUrl, audioUri);
+      if (!result.ok) {
+        Alert.alert(copy.transcribeError);
+        return;
+      }
+      const transcript = result.text.trim() || copy.emptyRecording;
+      await updateNote(db, noteId, transcript, { language: result.language, clearAudioUri: true });
+      await deleteRecording(audioUri);
+      setText(transcript);
+      setInitialText(transcript);
+      setAudioUri(null);
+      setSelection({ start: transcript.length, end: transcript.length });
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   const micAllowed = voiceOn && student?.recording_enabled === 1 && recording === null;
 
   return (
@@ -199,6 +223,18 @@ export default function NoteModal() {
 
         {recordingInThisModal && (
           <RecordingBar startedAt={recording!.startedAt} onStop={handleStopAndAppend} onCancel={handleBarCancel} />
+        )}
+
+        {editing && audioUri && recording === null && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={copy.retryTranscription}
+            onPress={handleRetryTranscription}
+            disabled={retrying}
+            style={[styles.retryBtn, retrying && { opacity: 0.5 }]}
+          >
+            <Text style={styles.retryLabel}>{copy.retryTranscription}</Text>
+          </Pressable>
         )}
 
         <View style={styles.actions}>
@@ -246,4 +282,6 @@ const styles = StyleSheet.create({
   saveLabel: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.accentText },
   deleteBtn: { alignSelf: 'center', padding: spacing.md, marginBottom: spacing.lg },
   deleteLabel: { fontFamily: fonts.headingItalic, fontSize: 13, color: colors.danger },
+  retryBtn: { alignSelf: 'center', backgroundColor: colors.surface2, paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, borderRadius: radii.md, marginVertical: spacing.sm },
+  retryLabel: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.ink },
 });

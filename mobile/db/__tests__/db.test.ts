@@ -237,6 +237,42 @@ describe('getNotesWithAudioUri', () => {
   });
 });
 
+describe('updateNote opts', () => {
+  it('updateNote with opts sets language and clears audio_uri', async () => {
+    const db = await openTestDb();
+    await migrate(db);
+    await addStudent(db, { name: 'Stine' });
+    const sid = (await listActiveStudents(db))[0].id;
+    await addNote(db, { studentId: sid, text: 'placeholder', language: null, audioUri: 'file:///audio.m4a' });
+    const row = await db.getFirstAsync<{ id: string }>(
+      `SELECT id FROM notes WHERE student_id = ?`, sid);
+    await updateNote(db, row!.id, 'real transcript', { language: 'danish', clearAudioUri: true });
+    const after = await db.getFirstAsync<{ text: string; audio_uri: string | null; language: string | null }>(
+      `SELECT text, audio_uri, language FROM notes WHERE id = ?`, row!.id);
+    expect(after?.text).toBe('real transcript');
+    expect(after?.audio_uri).toBeNull();
+    expect(after?.language).toBe('danish');
+    await db.closeAsync();
+  });
+
+  it('updateNote without opts preserves audio_uri and language (backward-compat)', async () => {
+    const db = await openTestDb();
+    await migrate(db);
+    await addStudent(db, { name: 'Stine' });
+    const sid = (await listActiveStudents(db))[0].id;
+    await addNote(db, { studentId: sid, text: 'placeholder', language: 'danish', audioUri: 'file:///audio.m4a' });
+    const row = await db.getFirstAsync<{ id: string }>(
+      `SELECT id FROM notes WHERE student_id = ?`, sid);
+    await updateNote(db, row!.id, 'edited text');
+    const after = await db.getFirstAsync<{ text: string; audio_uri: string | null; language: string | null }>(
+      `SELECT text, audio_uri, language FROM notes WHERE id = ?`, row!.id);
+    expect(after?.text).toBe('edited text');
+    expect(after?.audio_uri).toBe('file:///audio.m4a');
+    expect(after?.language).toBe('danish');
+    await db.closeAsync();
+  });
+});
+
 describe('migrate v2', () => {
   it('adds notes.language and notes.audio_uri columns at v2', async () => {
     const db = await openTestDb();

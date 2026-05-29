@@ -126,13 +126,22 @@ export async function getNote(
 export async function updateNote(
   db: SQLite.SQLiteDatabase,
   id: string,
-  text: string
+  text: string,
+  opts?: { language?: string | null; clearAudioUri?: boolean }
 ): Promise<void> {
+  const fields: string[] = ['text = ?', 'updated_at = ?'];
+  const args: any[] = [text, Date.now()];
+  if (opts && 'language' in opts) {
+    fields.push('language = ?');
+    args.push(opts.language ?? null);
+  }
+  if (opts?.clearAudioUri) {
+    fields.push('audio_uri = NULL');
+  }
+  args.push(id);
   await db.runAsync(
-    'UPDATE notes SET text = ?, updated_at = ? WHERE id = ?',
-    text,
-    Date.now(),
-    id
+    `UPDATE notes SET ${fields.join(', ')} WHERE id = ?`,
+    ...args
   );
 }
 
