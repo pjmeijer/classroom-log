@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>classroom-log — voice-first home mockup</title>
+<style>
+  :root {
+    --bg: #FAF6EE;
+    --surface: #FFFCF5;
+    --surface2: #F4EFE2;
+    --ink: #2A2620;
+    --inkMuted: #807366;
+    --border: #E8DFCB;
+    --accent: #C4543B;
+    --accent2: #7B9A66;
+    --accentSoft: #F4D9CF;
+    --accentText: #FFFCF5;
+    --danger: #B23A2A;
+    --shadow: 0 2px 6px rgba(196, 84, 59, 0.08);
+  }
+  html, body { margin: 0; padding: 0; background: #ddd; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); }
+  .page { max-width: 1400px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .subtitle { color: var(--inkMuted); font-size: 13px; margin: 0 0 24px; }
+  .frames { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  @media (max-width: 1100px) { .frames { grid-template-columns: 1fr; } }
+  .frame { background: var(--bg); border-radius: 32px; padding: 16px; box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
+  .frame-label { font-size: 12px; font-weight: 600; color: var(--ink); text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 4px; padding: 0 8px; }
+  .frame-note { font-size: 12px; color: var(--inkMuted); margin: 0 0 12px; padding: 0 8px; line-height: 1.4; }
+
+  /* phone shell */
+  .phone {
+    width: 320px;
+    height: 640px;
+    margin: 0 auto;
+    background: var(--bg);
+    border-radius: 24px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .phone-content { flex: 1; padding: 16px; overflow: hidden; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .title-heading { font-family: Georgia, serif; font-size: 22px; font-weight: 600; margin: 0; }
+  .topbar-right { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .status-pill { background: var(--accent2); color: var(--accentText); padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+  .gear { font-size: 18px; color: var(--inkMuted); }
+
+  .voice-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 4px; margin-bottom: 8px; }
+  .voice-row .lbl { font-size: 13px; color: var(--inkMuted); }
+  .voice-row .switch { width: 36px; height: 20px; background: var(--surface2); border-radius: 10px; position: relative; }
+  .voice-row .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: var(--surface); border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+
+  .section { font-family: Georgia, serif; font-size: 14px; font-weight: 600; margin: 12px 0 8px; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+
+  /* tile — idle */
+  .tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px;
+    min-height: 84px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    box-shadow: var(--shadow);
+    transition: opacity 0.2s;
+  }
+  .tile .name { font-family: Georgia, serif; font-size: 17px; font-weight: 600; color: var(--ink); }
+  .tile .meta { font-size: 11px; color: var(--inkMuted); }
+  .tile.dimmed { opacity: 0.35; }
+
+  /* tile — recording state (the in-place transformation) */
+  .tile.recording {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accentText);
+    grid-column: span 2;
+    min-height: 120px;
+    padding: 16px;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 8px;
+    box-shadow: 0 6px 20px rgba(196, 84, 59, 0.35);
+  }
+  .tile.recording .recording-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; opacity: 0.85; }
+  .tile.recording .recording-name { font-family: Georgia, serif; font-size: 17px; font-weight: 600; }
+  .tile.recording .recording-timer { font-variant-numeric: tabular-nums; font-size: 13px; }
+  .tile.recording .recording-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #FFFCF5;
+    margin-right: 6px;
+    vertical-align: middle;
+    animation: pulse 1s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(0.9); }
+  }
+  .waveform { display: flex; gap: 3px; align-items: center; height: 32px; }
+  .waveform .bar {
+    flex: 1;
+    background: rgba(255, 252, 245, 0.7);
+    border-radius: 2px;
+    animation: wave 0.9s ease-in-out infinite;
+  }
+  @keyframes wave {
+    0%, 100% { height: 30%; }
+    50% { height: 90%; }
+  }
+  .waveform .bar:nth-child(2) { animation-delay: 0.10s; }
+  .waveform .bar:nth-child(3) { animation-delay: 0.20s; }
+  .waveform .bar:nth-child(4) { animation-delay: 0.30s; }
+  .waveform .bar:nth-child(5) { animation-delay: 0.40s; }
+  .waveform .bar:nth-child(6) { animation-delay: 0.05s; }
+  .waveform .bar:nth-child(7) { animation-delay: 0.15s; }
+  .waveform .bar:nth-child(8) { animation-delay: 0.25s; }
+  .waveform .bar:nth-child(9) { animation-delay: 0.35s; }
+  .waveform .bar:nth-child(10) { animation-delay: 0.18s; }
+  .recording-actions { display: flex; gap: 10px; }
+  .btn-stop {
+    flex: 1;
+    background: var(--accentText);
+    color: var(--accent);
+    border: none;
+    padding: 10px;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .btn-cancel {
+    background: transparent;
+    color: var(--accentText);
+    border: 1px solid rgba(255,252,245,0.5);
+    padding: 10px 16px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  /* tile gesture hint (for first-time onboarding) */
+  .gesture-hint {
+    font-size: 10px;
+    color: var(--inkMuted);
+    font-style: italic;
+    margin-top: 4px;
+  }
+
+  /* today's notes */
+  .notes-list { display: flex; flex-direction: column; gap: 6px; }
+  .note-row {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+  .note-row .who { font-weight: 600; color: var(--ink); }
+  .note-row .text { color: var(--inkMuted); margin: 4px 0; line-height: 1.3; }
+  .note-row .ts { font-size: 10px; color: var(--inkMuted); }
+
+  /* undo/edit toast */
+  .toast {
+    position: absolute;
+    bottom: 80px;
+    left: 16px;
+    right: 16px;
+    background: var(--ink);
+    color: var(--accentText);
+    border-radius: 14px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  }
+  .toast .msg { font-size: 13px; }
+  .toast .actions { display: flex; gap: 12px; }
+  .toast .action { font-size: 13px; font-weight: 600; color: var(--accentSoft); cursor: pointer; background: none; border: none; padding: 4px 8px; }
+  .toast .action.undo { color: var(--accentSoft); }
+  .toast .action.edit { color: var(--accent2); filter: brightness(1.5); }
+
+  /* fab */
+  .fab {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    background: var(--accent);
+    color: var(--accentText);
+    border: none;
+    padding: 12px 18px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 13px;
+    box-shadow: 0 6px 14px rgba(196, 84, 59, 0.4);
+  }
+
+  /* mic permission denied state */
+  .perm-snack {
+    position: absolute;
+    bottom: 80px;
+    left: 16px;
+    right: 16px;
+    background: var(--danger);
+    color: var(--accentText);
+    border-radius: 14px;
+    padding: 10px 14px;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  /* annotation badge */
+  .annot {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: var(--accent2);
+    color: var(--accentText);
+    border-radius: 999px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    border: 2px solid var(--bg);
+  }
+
+  .legend {
+    grid-column: 1 / -1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px 20px;
+    margin-top: 8px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .legend strong { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="page">
+    <h1>classroom-log — voice-first home (approach A: in-place tile)</h1>
+    <p class="subtitle">Three home-screen states + the text modal with voice. The recording tile expands to a 2-column-span recorder when active; the text modal's mic button toggles into a small recording bar that appends the transcript at the cursor.</p>
+
+    <div class="frames">
+
+      <!-- Frame 1: idle -->
+      <div class="frame">
+        <p class="frame-label">1. Idle</p>
+        <p class="frame-note">Resting state. Tap a tile to start recording; long-press to open the text modal.</p>
+        <div class="phone">
+          <div class="phone-content">
+            <div class="topbar">
+              <h2 class="title-heading">Classroom Log</h2>
+              <div class="topbar-right">
+                <span class="status-pill">Online</span>
+                <span class="gear">⚙</span>
+              </div>
+            </div>
+            <div class="voice-row">
+              <span class="lbl">Voice off</span>
+              <span class="switch"></span>
+            </div>
+            <div class="section">Roster</div>
+            <div class="grid">
+              <div class="tile"><span class="name">Stine</span><span class="meta">2 notes today</span></div>
+              <div class="tile"><span class="name">Ingrid</span><span class="meta">No notes yet</span></div>
+              <div class="tile"><span class="name">Daniel</span><span class="meta">1 note today</span></div>
+              <div class="tile"><span class="name">Mads</span><span class="meta">No notes yet</span></div>
+            </div>
+            <div class="section">Today's notes</div>
+            <div class="notes-list">
+              <div class="note-row"><div class="who">Stine</div><div class="text">Det går fint i dag.</div><div class="ts">14:12</div></div>
+              <div class="note-row"><div class="who">Daniel</div><div class="text">Lidt urolig om morgenen, faldt til ro inden frokost.</div><div class="ts">10:34</div></div>
+            </div>
+          </div>
+          <button class="fab">＋ Generate Summary</button>
+        </div>
+      </div>
+
+      <!-- Frame 2: recording -->
+      <div class="frame">
+        <p class="frame-label">2. Recording (tap Stine)</p>
+        <p class="frame-note">Stine's tile expands to span two columns. Other tiles dim. Bottom controls: big Stop, smaller Cancel.</p>
+        <div class="phone">
+          <div class="phone-content">
+            <div class="topbar">
+              <h2 class="title-heading">Classroom Log</h2>
+              <div class="topbar-right">
+                <span class="status-pill">Online</span>
+                <span class="gear">⚙</span>
+              </div>
+            </div>
+            <div class="voice-row">
+              <span class="lbl">Voice off</span>
+              <span class="switch"></span>
+            </div>
+            <div class="section">Roster</div>
+            <div class="grid">
+              <div class="tile recording" style="position:relative">
+                <div class="recording-header">
+                  <span><span class="recording-dot"></span>Recording</span>
+                  <span class="recording-timer">0:23</span>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                  <span class="recording-name">Stine</span>
+                  <div class="waveform">
+                    <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+                    <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+                    <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+                    <span class="bar"></span>
+                  </div>
+                </div>
+                <div class="recording-actions">
+                  <button class="btn-stop">Stop &amp; save</button>
+                  <button class="btn-cancel">Cancel</button>
+                </div>
+              </div>
+              <div class="tile dimmed"><span class="name">Ingrid</span><span class="meta">No notes yet</span></div>
+              <div class="tile dimmed"><span class="name">Daniel</span><span class="meta">1 note today</span></div>
+              <div class="tile dimmed"><span class="name">Mads</span><span class="meta">No notes yet</span></div>
+            </div>
+            <div class="section">Today's notes</div>
+            <div class="notes-list">
+              <div class="note-row"><div class="who">Stine</div><div class="text">Det går fint i dag.</div><div class="ts">14:12</div></div>
+            </div>
+          </div>
+          <button class="fab" style="opacity:0.5">＋ Generate Summary</button>
+        </div>
+      </div>
+
+      <!-- Frame 3: post-stop toast -->
+      <div class="frame">
+        <p class="frame-label">3. Saved (post-Stop)</p>
+        <p class="frame-note">Whisper finished. Note saved as Stine's. Toast lingers ~5s with Undo + Edit. Home is fully interactive again.</p>
+        <div class="phone">
+          <div class="phone-content">
+            <div class="topbar">
+              <h2 class="title-heading">Classroom Log</h2>
+              <div class="topbar-right">
+                <span class="status-pill">Online</span>
+                <span class="gear">⚙</span>
+              </div>
+            </div>
+            <div class="voice-row">
+              <span class="lbl">Voice off</span>
+              <span class="switch"></span>
+            </div>
+            <div class="section">Roster</div>
+            <div class="grid">
+              <div class="tile"><span class="name">Stine</span><span class="meta">3 notes today</span></div>
+              <div class="tile"><span class="name">Ingrid</span><span class="meta">No notes yet</span></div>
+              <div class="tile"><span class="name">Daniel</span><span class="meta">1 note today</span></div>
+              <div class="tile"><span class="name">Mads</span><span class="meta">No notes yet</span></div>
+            </div>
+            <div class="section">Today's notes</div>
+            <div class="notes-list">
+              <div class="note-row"><div class="who">Stine</div><div class="text">Han havde en god morgen, smilte til Ingrid i frikvarteret…</div><div class="ts">14:15</div></div>
+              <div class="note-row"><div class="who">Stine</div><div class="text">Det går fint i dag.</div><div class="ts">14:12</div></div>
+            </div>
+          </div>
+          <div class="toast">
+            <span class="msg">Saved for Stine</span>
+            <div class="actions">
+              <button class="action undo">Undo</button>
+              <button class="action edit">Edit</button>
+            </div>
+          </div>
+          <button class="fab">＋ Generate Summary</button>
+        </div>
+      </div>
+
+      <!-- Frame 4: text modal with voice -->
+      <div class="frame">
+        <p class="frame-label">4. Text modal — voice while typing</p>
+        <p class="frame-note">Long-press a tile (or tap a Today's-note row) opens this. The mic button now works: tap → small recording bar appears → tap Stop → Whisper transcript appends at cursor. Cancel discards.</p>
+        <div class="phone">
+          <div class="phone-content" style="padding: 0;">
+            <!-- modal header -->
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid var(--border);">
+              <span style="font-family: Georgia, serif; font-size: 18px; font-weight: 600;">Stine</span>
+              <div style="display:flex; gap:12px; align-items:center;">
+                <button style="background:var(--accent); color:var(--accentText); border:none; width:36px; height:36px; border-radius:18px; font-size:14px;" title="Recording active">⏺</button>
+                <span style="font-size:18px; color:var(--inkMuted);">✕</span>
+              </div>
+            </div>
+            <!-- textarea -->
+            <div style="padding:14px 16px; flex:1; min-height:240px; opacity:0.6;">
+              <span style="font-size:14px; color:var(--ink);">Stine var rolig om morgenen og deltog aktivt i samlingen. </span><span style="background:var(--accent); width:1px; display:inline-block; height:14px; vertical-align:middle;"></span>
+            </div>
+            <!-- recording bar inside modal -->
+            <div style="background:var(--accent); color:var(--accentText); padding:12px 16px; display:flex; align-items:center; gap:12px;">
+              <span class="recording-dot"></span>
+              <span style="font-size:13px; font-weight:600;">Recording 0:11</span>
+              <div class="waveform" style="flex:1; height:24px;">
+                <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+                <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+                <span class="bar"></span>
+              </div>
+              <button style="background:var(--accentText); color:var(--accent); border:none; padding:6px 12px; border-radius:10px; font-weight:700; font-size:12px;">Stop</button>
+              <button style="background:transparent; color:var(--accentText); border:1px solid rgba(255,252,245,0.5); padding:6px 8px; border-radius:10px; font-size:12px;">Cancel</button>
+            </div>
+            <!-- save row -->
+            <div style="padding:14px 16px; display:flex; gap:10px;">
+              <button style="flex:1; background:var(--accent2); color:var(--accentText); border:none; padding:12px; border-radius:14px; font-weight:700; font-size:14px;">Update</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <p style="margin: 0 0 6px;"><strong>Gestures</strong></p>
+        <p style="margin: 0;">
+          <strong>Tap a tile</strong> → start recording inline (this view).
+          <strong>Long-press a tile</strong> → opens the text-entry modal (existing screen with the mic button now wired up — voice works there too).
+          <strong>Tap a Today's-note row</strong> → opens the text modal in edit mode.
+          <strong>Tap Stop &amp; save</strong> → Whisper transcribes; note saves; toast appears for 5 s.
+          <strong>Tap Cancel</strong> → discard the recording, no note saved.
+          <strong>Tap Undo</strong> (during toast) → deletes the just-saved note.
+          <strong>Tap Edit</strong> (during toast) → opens the just-saved note in the text modal so you can fix a misheard word.
+          <strong>Inside the text modal — tap the mic chip in the header</strong> → small recording bar slides in at the bottom of the modal; stop appends the transcript at the cursor, cancel discards it.
+          <strong>Swipe-down on the text modal</strong> → same as tapping the ✕ (dismiss; prompts the discard sheet if dirty).
+        </p>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>
