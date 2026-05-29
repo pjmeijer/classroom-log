@@ -67,6 +67,14 @@ export default function NoteModal() {
         e.preventDefault();
         const r = useCaptureStore.getState().cancel();
         if (r) await discardRecording(r.recorder);
+        // Codex P1: re-dispatching here used to bypass the dirty-text guard.
+        // If typed-but-unsaved text exists, queue the dismissal and surface
+        // DiscardSheet first; the user re-confirms via discard/save.
+        if (dirty && !allowLeaveRef.current) {
+          pendingActionRef.current = e.data.action;
+          setDiscardVisible(true);
+          return;
+        }
         navigation.dispatch(e.data.action);
         return;
       }
