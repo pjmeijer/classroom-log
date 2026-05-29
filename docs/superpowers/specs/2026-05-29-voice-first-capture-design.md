@@ -344,7 +344,7 @@ screen and component imports the keys it needs.
 // mobile/lib/copy.ts
 export const copy = {
   // Home
-  appTitle: 'Klasselog',
+  appTitle: 'Observationer',
   roster: 'Klasseliste',
   todaysNotes: 'Dagens noter',
   voiceOff: 'Stemme fra',
