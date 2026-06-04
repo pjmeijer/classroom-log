@@ -55,7 +55,12 @@ build (App Store production profile, OTA updates, Android, push, CI).
 
 ## Specifics
 
-### `mobile/eas.json` (new file)
+### `mobile/eas.json` (new file — first-submit form)
+
+This is the literal file content to commit. **`ascAppId` is intentionally
+absent**; EAS Submit treats any non-empty string in that field as a real
+numeric ASC App ID and skips the auto-create path, so a placeholder string
+would break the first run.
 
 ```json
 {
@@ -78,8 +83,7 @@ build (App Store production profile, OTA updates, Android, push, CI).
     "preview": {
       "ios": {
         "appleId": "<user's Apple ID email — filled at implementation>",
-        "appleTeamId": "<10-char Apple Developer team ID — `eas credentials` will surface this>",
-        "ascAppId": "<OMIT entirely for first submit; EAS Submit auto-creates the ASC app record. After the first successful submit, copy the numeric ASC App ID from the CLI output and paste it here for non-interactive subsequent submits.>",
+        "appleTeamId": "<10-char Apple Developer team ID — surfaced by `eas credentials`>",
         "appName": "Classroom Log",
         "language": "en-US",
         "sku": "classroomlog-001",
@@ -90,9 +94,26 @@ build (App Store production profile, OTA updates, Android, push, CI).
 }
 ```
 
-**Important:** for the actual first-submit run, REMOVE the `ascAppId` line
-entirely from the file rather than leaving the placeholder string. EAS treats
-any non-empty string as a real ASC App ID and skips the auto-create path.
+**After the first successful `eas submit`**, the CLI prints the assigned
+numeric ASC App ID. Add it to `submit.preview.ios` as a new line — for
+example:
+
+```json
+"submit": {
+  "preview": {
+    "ios": {
+      "appleId": "...",
+      "appleTeamId": "...",
+      "ascAppId": "1234567890",
+      "appName": "Classroom Log",
+      ...
+    }
+  }
+}
+```
+
+Commit the change. Subsequent `eas submit` runs are now fully non-interactive
+and skip the ASC auto-create branch.
 
 Field choices:
 
@@ -252,45 +273,67 @@ distributable to External testers.
 
 1. Sign into [appstoreconnect.apple.com](https://appstoreconnect.apple.com).
 2. "My Apps" → "Classroom Log" → "TestFlight" tab → wait for the build to
-   move through the full status chain:
+   move through Apple's full status chain. The states a TestFlight build
+   passes through, in order:
    - `Processing` (~5-15 min while ASC re-encodes the binary).
-   - `Missing Compliance` should be SKIPPED because the build carries
+   - `Missing Compliance` — should be SKIPPED because the build carries
      `ITSAppUsesNonExemptEncryption = false` in Info.plist via the
-     `ios.config.usesNonExemptEncryption` flag in `app.json`. If it lands in
-     `Missing Compliance` anyway, the flag did not bake in — verify the
-     submitted binary contains the key (Apple's questionnaire is a one-time
-     manual fallback).
-   - `Ready to Submit` once compliance clears.
+     `ios.config.usesNonExemptEncryption` flag in `app.json`. If the build
+     stops here anyway, the flag did not bake in — answer the encryption
+     questionnaire in ASC one time as a fallback, then investigate the
+     Expo config before the next build.
+   - `Ready to Submit` — compliance is settled; you can attach the build
+     to a testing group.
+   - `Waiting for Review` — the build is queued for Apple's Beta App
+     Review (External-group submissions only).
+   - `In Beta Review` — Apple's reviewer is actively examining the build.
+   - `Ready to Test` — Apple approved; the build is downloadable by
+     testers in the group.
+   - `Testing` — at least one tester has installed it.
+   - `Expired` — 90 days after upload; the build is no longer
+     installable. Ship a new build before this hits to keep cohort rolling.
 3. **App Information** (one-time, left sidebar in "App Store" tab):
    complete the required fields ASC won't allow Beta App Review without:
    privacy-policy URL (Railway-side, even a placeholder TestFlight-only URL is
    accepted at this stage), primary category, subcategory.
-4. **Test Information** ("TestFlight" tab → "Test Information"):
-   - Feedback email (the user's Apple ID or a dedicated address).
-   - Marketing URL (optional).
-   - Privacy Policy URL (required for External; can be the same placeholder).
-   - "What to Test" notes — short blurb teachers see on accept.
-   - "Sign-In Information" if your app requires login — N/A here.
+4. **Test Information** ("TestFlight" tab → "Test Information"). The fields
+   Apple requires before allowing Beta App Review submission, in priority
+   order:
+   - **Beta App Description** (required) — a short blurb describing the app's
+     beta state. Visible to Apple's reviewer and to testers in TestFlight.
+     Example: "Voice-first classroom observation log for special-education
+     teachers. Currently in private cohort beta."
+   - **Feedback email** (required) — typically the user's Apple ID or a
+     dedicated address. Where testers' in-app feedback lands.
+   - **Privacy Policy URL** (required for External Testing).
+   - **Marketing URL** (optional).
+   - **What to Test** notes (optional but recommended) — a short blurb
+     teachers see when accepting an invite or installing an update.
+   - **Sign-In Information** (only if the app requires login — N/A here).
 5. **Internal Testing Group** (one-time prerequisite): "Internal Testing" →
-   "+ New Group" → name e.g. "Devs". No testers required. ASC enforces this
-   group's existence before allowing External Testing groups; the External
-   group flow silently fails or hides options if no Internal group exists.
+   "+ New Group" → name e.g. "Devs". No testers required to exist in the
+   group, but the group itself must exist. ASC's UI typically requires that
+   the build has passed through Internal Testing eligibility before allowing
+   it to be added to an External group. Creating an empty Internal group
+   reliably satisfies that prerequisite.
 6. **External Testing Group**: "External Testing" → "+ New Group" → name
    e.g. "Cohort 1" → "Builds" tab → "+" → add the just-uploaded build.
 7. **Submit for Beta App Review** (button at the top of the External group's
    build page). Wait 24-48h for Apple's approval email. Each new version of
-   the build needs this review again; non-bug-fix-only revisions can be
-   flagged "uses fast-track" for ~24h turnaround.
+   the build needs this review again; the review is typically lighter than
+   App Store review.
 8. After approval: in the External group → "Public Link" → toggle ON. ASC
    generates a `https://testflight.apple.com/join/...` URL that survives
    across builds.
-9. **Automatic distribution**: in the External group → "Builds" tab →
-   "Automatic Distribution" toggle → ON. This makes future approved builds
-   roll out to the group's testers without the user manually adding each
-   build. Without this, every new version requires going back to step 6.
-   (Note: EAS Submit's `groups` field in `eas.json` only targets *Internal*
-   TestFlight groups, not External — so the automatic-distribution toggle in
-   ASC is the only path to hands-off External rollout.)
+9. **Notify testers automatically**: in the External group's settings,
+   enable "Automatically notify testers" so that whenever you add a new
+   build to the group and Apple approves it, testers receive the
+   TestFlight email + push without you having to manually trigger a
+   notification. (Note: this is the per-tester notification toggle, NOT
+   automatic build distribution — External groups still require each new
+   build to be added to the group via the ASC UI per release. EAS Submit's
+   `groups` field in `eas.json` only targets *Internal* TestFlight groups,
+   not External — so per-release ASC steps are part of the cohort flow.)
 
 ### Tester onboarding flow
 
@@ -299,11 +342,13 @@ distributable to External testers.
 3. Teacher opens the URL in Safari → "Accept" → "Install" → Classroom Log
    lands on home screen with TestFlight's orange dot for up to 90 days per
    build.
-4. After step 9 above (Automatic Distribution ON), each new Beta-App-Review-
-   approved build auto-pushes to existing testers and they see the standard
-   TestFlight "new build available" prompt; no re-invite, no manual ASC
-   action needed per release. If Automatic Distribution is left OFF, the user
-   must re-add each new build to the External group manually.
+4. **Per-release flow for new builds**: for each new version, the user
+   (a) runs `eas build` + `eas submit`, (b) waits for ASC `Processing` →
+   `Ready to Submit`, (c) opens the External group in ASC and adds the new
+   build under "Builds", (d) submits for Beta App Review, (e) after Apple
+   approves, the build moves to `Ready to Test` and (with "Automatically
+   notify testers" ON) testers receive a TestFlight prompt to update.
+   Manual notification is also available if needed.
 
 ### Versioning + release cadence
 
@@ -339,8 +384,11 @@ Notifications" — EAS will provision the APNs auth key automatically.
   npm run typecheck
   npm test
   ```
-  All must pass. EAS reruns these in the cloud, but local catches it faster
-  and avoids burning a cloud-build slot.
+  All must pass. EAS Build does NOT run `typecheck`/`test` in the cloud
+  unless a `package.json` `eas-build-pre-install`/`-post-install` lifecycle
+  hook is configured (none is, by design — see Out of Scope). The local
+  check is the only gate; running it first avoids burning a cloud-build
+  slot on a known-broken bundle.
 - **Manual verification on first build**:
   - `eas build` succeeds (~15-25 min); produces a downloadable `.ipa`.
   - `eas submit` succeeds; ASC TestFlight tab shows the build under "iOS
@@ -395,8 +443,8 @@ The following were considered and explicitly deferred:
 
 ## Cross-references
 
-- Restored checkpoint that set EAS as the next thread:
-  `~/.gstack/projects/pjmeijer-classroom-log/checkpoints/20260604-123626-v1.1-post-smoke-shipped-to-main-icons-polished-eas-as-next.md`
+Repo-local artifacts:
+
 - Voice-first plan (parent feature, shipped):
   `docs/superpowers/plans/2026-05-29-voice-first-capture.md`
 - Modal-mic-icon design (style reference for this spec):
@@ -404,9 +452,25 @@ The following were considered and explicitly deferred:
 - Second device test feedback (the on-device validation that motivates
   cohort distribution):
   `docs/superpowers/feedback/2026-06-04-second-device-test.md`
-- Infra state memory:
-  `~/.claude/projects/-workspace/memory/project_classroomlog_infra.md`
-- Build-host memory:
-  `~/.claude/projects/-workspace/memory/user_windows_host.md`
-- Expo SDK 54 docs (per `mobile/AGENTS.md` — verify schema during
+- Mobile-specific contributor notes (read before any mobile/ change):
+  `mobile/AGENTS.md` — directs implementers to the SDK 54 docs.
+
+External:
+
+- Expo SDK 54 reference (verify exact `eas.json` schema during
   implementation): https://docs.expo.dev/versions/v54.0.0/
+- EAS Build reference (versioning, profiles, env injection):
+  https://docs.expo.dev/build/introduction/
+- Apple TestFlight build-status reference (the status chain in §ASC setup):
+  https://developer.apple.com/help/app-store-connect/reference/app-build-statuses/
+
+Project context outside this repo (paraphrased here so the spec is
+self-contained; the canonical source is the user's own knowledge of the
+project):
+
+- Railway production backend is running on the free tier; the EAS `env`
+  block needs the actual Railway URL pasted in at implementation time.
+- The user runs `eas`/`npm`/`git` commands from Windows PowerShell. The
+  WSL2 / Claude-container side is for file edits and grep only.
+- Apple Developer Program is paid for the user's Apple ID; no team setup
+  or extra purchase is required to ship to TestFlight.
