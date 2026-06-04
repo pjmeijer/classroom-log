@@ -243,7 +243,7 @@ export default function NoteModal() {
               <Feather name="mic" size={20} color={micAllowed ? colors.accent : colors.inkMuted} />
             </Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel={copy.cancel} onPress={handleClose}>
-              <Text style={styles.x}>✕</Text>
+              <Feather name="x" size={22} color={colors.inkMuted} />
             </Pressable>
           </View>
         </View>
@@ -314,7 +314,6 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
   title: { fontFamily: fonts.heading, fontSize: 22, color: colors.ink },
   micToggle: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  x: { fontSize: 22, color: colors.inkMuted },
   textarea: { flex: 1, padding: spacing.lg, fontFamily: fonts.body, fontSize: 16, color: colors.ink, textAlignVertical: 'top' },
   actions: { flexDirection: 'row', gap: spacing.md, padding: spacing.lg, alignItems: 'center' },
   saveBtn: { flex: 1, backgroundColor: colors.accent2, paddingVertical: spacing.md, borderRadius: radii.md, alignItems: 'center' },
