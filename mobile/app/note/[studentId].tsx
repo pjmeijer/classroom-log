@@ -23,7 +23,6 @@ export default function NoteModal() {
   const recorder = useRecorder();
   const { studentId, noteId } = useLocalSearchParams<{ studentId: string; noteId?: string }>();
   const [student, setStudent] = useState<Student | null>(null);
-  const [voiceOn, setVoiceOn] = useState(true);
   const [apiUrl, setApiUrl] = useState('');
   const [text, setText] = useState('');
   const [initialText, setInitialText] = useState('');
@@ -64,7 +63,6 @@ export default function NoteModal() {
       const all = await listActiveStudents(db);
       const s = all.find(x => x.id === studentId);
       setStudent(s || null);
-      setVoiceOn((await getSetting(db, 'voice_on')) !== '0');
       setApiUrl((await getSetting(db, 'api_base_url')) || DEFAULT_API_BASE_URL);
       if (noteId) {
         const n = await getNote(db, noteId);
@@ -158,7 +156,13 @@ export default function NoteModal() {
 
   async function handleMicTap() {
     if (recording !== null) return;
-    if (!voiceOn || student?.recording_enabled === 0) return;
+    // The global "Stemme fra" setting governs the home-screen tile
+    // single-tap so users don't start a recording by accident. It does
+    // NOT gate this modal's mic chip — by the time a user has long-
+    // pressed a tile and tapped the chip, they've taken intentional
+    // action. The per-student recording_enabled gate still applies
+    // because that's a privacy/consent opt-out, not a UX safety toggle.
+    if (student?.recording_enabled === 0) return;
     const granted = await ensurePermission();
     if (!granted) {
       Alert.alert(copy.micDeniedSnack);
@@ -219,7 +223,9 @@ export default function NoteModal() {
     }
   }
 
-  const micAllowed = voiceOn && student?.recording_enabled === 1 && recording === null;
+  // micAllowed mirrors handleMicTap's gate — see there for the
+  // rationale on why "Stemme fra" is not checked.
+  const micAllowed = student?.recording_enabled === 1 && recording === null;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>

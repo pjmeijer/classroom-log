@@ -150,12 +150,41 @@ the user's preferred language from a settings entry. Not building that
 infrastructure now (YAGNI — the product is Danish-only and there's no
 near-term plan to change).
 
+### 4. "Stemme fra" was incorrectly gating the modal mic chip
+
+**Symptom.** Surfaced during the icon-swap session: with the global
+"Stemme fra" toggle enabled (voice off), the mic chip in the note
+modal would also become disabled. User flagged this as wrong.
+
+**Decision.** "Stemme fra" is a UX safety against accidentally starting
+a recording from the home-screen tile single-tap. Inside the modal,
+the user has already taken two explicit intentional actions: long-
+pressed a tile (to open the modal) and tapped the mic chip (to start
+recording). A safety toggle at that point would just frustrate users
+who deliberately want to dictate.
+
+The per-student `recording_enabled` flag still gates the modal mic,
+because that's a privacy / consent opt-out (one specific student is
+not to be recorded), not a UX safety. Different concern, same surface.
+
+**Resulting gate logic:**
+
+| Surface | `voice_on` gate? | `student.recording_enabled === 0` gate? |
+|---|---|---|
+| Home tile single-tap → record | yes | yes (falls back to text modal) |
+| Modal mic chip → record | **no** (this change) | yes (stays disabled) |
+| Modal mic chip → record (during another recording) | n/a | also blocked by `recording !== null` |
+
+**Fix.** Removed `voiceOn` from both `handleMicTap`'s early-return
+and the `micAllowed` predicate in `mobile/app/note/[studentId].tsx`.
+The unused `voiceOn` state and its loader were deleted (dead code).
+
 ## Status at end of session
 
-- Mobile: jest 12 suites / 60 tests passing, tsc clean.
+- Mobile: jest 11 suites / 60 tests passing, tsc clean.
 - Backend: pytest 17 tests passing (was 16; +1 for the language-pin test).
-- Three commits ready to land on `feat/voice-first-capture` once the user
-  confirms a final on-device pass with all three fixes in place.
+- Four commits ready to land on `feat/voice-first-capture` once the user
+  confirms a final on-device pass with all fixes in place.
 
 ## Path references
 
