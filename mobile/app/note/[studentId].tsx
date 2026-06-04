@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Alert, Keyboard, Platform, type KeyboardEvent } from 'react-native';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { addNote, updateNote, deleteNote, getNote, listActiveStudents, getSetting, Student } from '../../db/db';
@@ -233,7 +234,7 @@ export default function NoteModal() {
               onPress={handleMicTap}
               style={[styles.micToggle, { backgroundColor: micAllowed ? colors.accentSoft : colors.surface2, opacity: micAllowed ? 1 : 0.5 }]}
             >
-              <Text style={{ fontSize: 14 }}>🎙</Text>
+              <Feather name="mic" size={20} color={micAllowed ? colors.accent : colors.inkMuted} />
             </Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel={copy.cancel} onPress={handleClose}>
               <Text style={styles.x}>✕</Text>
