@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Switch, Pressable, Alert } from 'react-native';
 import { useRouter, useFocusEffect, Link } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { listActiveStudents, getNotesForLocalDate, getSetting, setSetting, addNote, deleteNote, Student } from '../db/db';
@@ -136,7 +137,7 @@ export default function Home() {
             <StatusPill ok={true} />
             <Link href="/settings" asChild>
               <Pressable accessibilityRole="button" accessibilityLabel={copy.settings}>
-                <Text style={{ fontSize: 20 }}>⚙</Text>
+                <Feather name="settings" size={20} color={colors.ink} />
               </Pressable>
             </Link>
           </View>
