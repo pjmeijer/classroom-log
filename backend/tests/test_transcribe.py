@@ -30,6 +30,24 @@ def test_transcribe_returns_text_and_language(client):
     assert body['language'] == 'danish'
 
 
+def test_transcribe_pins_danish_language_hint_to_whisper(client):
+    # Whisper's auto-detect is unreliable on short / quiet Danish clips and
+    # occasionally returns the wrong language, which then degrades accuracy.
+    # We pin language='da' (ISO-639-1) on every call so Whisper doesn't guess.
+    fake_resp = MagicMock(text='Eleven var rolig.', language='danish')
+    with patch('app.clients.openai_client.OpenAI') as openai_ctor:
+        create_mock = openai_ctor.return_value.audio.transcriptions.create
+        create_mock.return_value = fake_resp
+        files = {'audio': ('a.m4a', b'fake bytes', 'audio/m4a')}
+        r = client.post('/transcribe', files=files)
+    assert r.status_code == 200
+    create_mock.assert_called_once()
+    kwargs = create_mock.call_args.kwargs
+    assert kwargs.get('language') == 'da', (
+        f"Whisper was not called with language='da'; got language={kwargs.get('language')!r}"
+    )
+
+
 @patch("app.routes.transcribe.transcribe_audio", new_callable=AsyncMock)
 def test_transcribe_propagates_openai_error(mock_t, client):
     mock_t.side_effect = RuntimeError("model temporarily unavailable")
