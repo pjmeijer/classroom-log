@@ -808,13 +808,42 @@ git log --oneline origin/main..feat/eas-testflight-pipeline
 
 Expected: both are empty (main and remote main are in sync; nothing on the feature branch that isn't on main).
 
-- [ ] **Step 4: Leave the feature branch alive OR delete**
+- [ ] **Step 4: Update READMEs with TestFlight / cohort distribution info**
 
-By default, leave `feat/eas-testflight-pipeline` alive — it's useful as a reference if any future EAS-config work spawns from it. If the user wants it cleaned up:
+Two README files need updating to reflect that TestFlight is now the cohort distribution path (was previously marked out-of-scope or vestigial):
+
+**`mobile/README.md`:**
+- Line 59: "skips Expo Go's tunnel entirely. Out of scope for v1." — UPDATE: TestFlight is now in scope; remove "out of scope for v1" and reference the EAS plan/spec.
+- Line 95: "loads in App Store Expo Go without TestFlight" — UPDATE: not relevant anymore; the cohort path is TestFlight, not Expo Go.
+- Add a new section: `## Cohort distribution (TestFlight)` with the public TestFlight URL (filled at Task 8 Step 8) and one-paragraph onboarding instructions teachers need.
+
+**`README.md` (root):**
+- Add a `## Testing / Distribution` section pointing to:
+  - The EAS spec: `docs/superpowers/specs/2026-06-04-eas-testflight-pipeline-design.md`
+  - The EAS plan: `docs/superpowers/plans/2026-06-04-eas-testflight-pipeline.md`
+  - The public TestFlight URL (from Task 8 Step 8).
+- One sentence on what cohort testers do (install TestFlight, tap link, install app, give feedback via the configured email).
+
+Commit:
 
 ```bash
-git branch -d feat/eas-testflight-pipeline
-git push origin --delete feat/eas-testflight-pipeline
+git add README.md mobile/README.md
+git -c user.email=pjmeijer@me.com -c user.name=pjmeijer commit -m "docs(readme): add TestFlight cohort-distribution section
+
+Root README gains a Testing / Distribution section linking the EAS
+spec + plan and the public TestFlight URL. mobile/README has its
+'TestFlight is out of scope' wording removed (it is in scope now)
+and gains a cohort-onboarding paragraph."
+git push origin main
+```
+
+- [ ] **Step 5: Leave the feature branch alive OR delete**
+
+By default, leave `feat/eas-testflight-impl` and `feat/eas-testflight-pipeline` alive — they're useful as references if any future EAS-config work spawns from them. If the user wants them cleaned up:
+
+```bash
+git branch -d feat/eas-testflight-impl feat/eas-testflight-pipeline
+git push origin --delete feat/eas-testflight-impl feat/eas-testflight-pipeline
 ```
 
 (Optional. The voice-first branch is still alive per the earlier checkpoint; same pattern.)
@@ -850,7 +879,8 @@ git push origin --delete feat/eas-testflight-pipeline
 | Railway log check, HTTPS-only check | Task 9 Steps 5-6 |
 | `/codex review` gate on the implementation diff | Task 5 Step 3 |
 | Spec-compliance subagent gate | Task 5 Step 1 |
-| Merge to main, push | Task 10 |
+| Merge to main, push | Task 10 Steps 1-3 |
+| Update READMEs with TestFlight / cohort distribution info | Task 10 Step 4 |
 | Open values (`<RAILWAY_URL>`, `<APPLE_ID>`, `<APPLE_TEAM_ID>`, `<COMPANY_NAME>`) flagged for user fill | Top of plan + Task 6 Step 6 |
 
 All spec sections map to a task.
