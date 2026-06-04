@@ -1,4 +1,4 @@
-const url = process.env.EXPO_PUBLIC_API_BASE_URL;
+const url = process.env.EXPO_PUBLIC_API_BASE_URL || undefined;
 if (!url) {
   if (!(global as any).__DEV__) {
     throw new Error(

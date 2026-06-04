@@ -38,4 +38,23 @@ describe('DEFAULT_API_BASE_URL', () => {
       });
     }).toThrow(/EXPO_PUBLIC_API_BASE_URL/);
   });
+
+  it('treats empty-string env as unset (sentinel in __DEV__)', () => {
+    process.env.EXPO_PUBLIC_API_BASE_URL = '';
+    (global as any).__DEV__ = true;
+    jest.isolateModules(() => {
+      const { DEFAULT_API_BASE_URL } = require('../config');
+      expect(DEFAULT_API_BASE_URL).toBe('https://example.ngrok.app');
+    });
+  });
+
+  it('treats empty-string env as unset (throws in non-dev)', () => {
+    process.env.EXPO_PUBLIC_API_BASE_URL = '';
+    (global as any).__DEV__ = false;
+    expect(() => {
+      jest.isolateModules(() => {
+        require('../config');
+      });
+    }).toThrow(/EXPO_PUBLIC_API_BASE_URL/);
+  });
 });
