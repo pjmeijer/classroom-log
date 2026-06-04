@@ -12,7 +12,7 @@ The next major thread is getting it into the hands of a small cohort of
 special-education teachers for multi-week testing.
 
 The Railway production backend is already running (free tier, see
-`project_classroomlog_infra` memory) and the Apple Developer Program is paid.
+Cross-references section) and the Apple Developer Program is paid and active.
 What's missing is the pipeline from "code in `main`" to "app on a teacher's
 iPhone via TestFlight."
 
@@ -50,7 +50,7 @@ build (App Store production profile, OTA updates, Android, push, CI).
 | Env injection method | Plain `env` block in `eas.json` | Railway URL isn't secret; version-controlled is better |
 | TestFlight tier | External + public link | Teachers don't need ASC team membership; 24-48h beta-review is acceptable for weeks-long testing |
 | Push certificates | Defer | No push features in the app today |
-| Build host | Windows PowerShell | Per `user_windows_host` memory; container is for grep + edits only |
+| Build host | Windows PowerShell | User runs CLI commands from Windows; the WSL2 dev-container is read-only for this work |
 | Versioning strategy | Manual `version`, auto-incremented `buildNumber` | Apple-required monotonic build number, user-visible version stays intentional |
 
 ## Specifics
@@ -112,8 +112,12 @@ example:
 }
 ```
 
-Commit the change. Subsequent `eas submit` runs are now fully non-interactive
-and skip the ASC auto-create branch.
+Commit the change. Subsequent `eas submit` runs now skip the ASC auto-create
+branch. Full non-interactive submission ALSO requires submit auth to be
+configured — typically an App Store Connect API Key generated in ASC and
+stored via `eas credentials` (or an app-specific password set as the
+`EXPO_APPLE_APP_SPECIFIC_PASSWORD` env var). Without one of those, EAS will
+still prompt for credentials on each `eas submit` even with `ascAppId` set.
 
 Field choices:
 
@@ -361,9 +365,11 @@ distributable to External testers.
   increments on every build server-side, and `git status` stays clean
   after each build.
 - **Expected cadence**: ~1 build per week for cohort iteration. The 24-48h
-  Beta App Review is the natural ceiling on faster cycles. Apple's Test
-  Information changes (like updated "What to Test" notes) also require
-  re-submission, but typically clear faster than full code changes.
+  Beta App Review is the natural ceiling on faster cycles. Note: editing
+  Test Information metadata (Beta App Description, Feedback Email, What to
+  Test notes) does NOT require a re-review — updates land in testers'
+  TestFlight app immediately. Only changes to the build itself (a new
+  upload) trigger a fresh Beta App Review.
 
 ### Push notifications posture
 
@@ -468,9 +474,10 @@ Project context outside this repo (paraphrased here so the spec is
 self-contained; the canonical source is the user's own knowledge of the
 project):
 
-- Railway production backend is running on the free tier; the EAS `env`
-  block needs the actual Railway URL pasted in at implementation time.
-- The user runs `eas`/`npm`/`git` commands from Windows PowerShell. The
-  WSL2 / Claude-container side is for file edits and grep only.
-- Apple Developer Program is paid for the user's Apple ID; no team setup
-  or extra purchase is required to ship to TestFlight.
+- Railway production backend for the classroom-log API is running on the
+  free tier; the EAS `env` block needs the actual Railway URL pasted in at
+  implementation time.
+- The user runs `eas`/`npm`/`git` commands from Windows PowerShell; the
+  WSL2 dev-container side of the repo is used for file edits and grep only.
+- The user's Apple Developer Program enrollment is paid and active; no team
+  setup or extra purchase is required to ship to TestFlight.
