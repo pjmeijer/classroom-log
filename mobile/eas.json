@@ -1,0 +1,29 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "store",
+      "ios": {
+        "autoIncrement": true
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "<RAILWAY_URL>"
+      }
+    }
+  },
+  "submit": {
+    "preview": {
+      "ios": {
+        "appleId": "<APPLE_ID>",
+        "appleTeamId": "<APPLE_TEAM_ID>",
+        "appName": "Classroom Log",
+        "language": "en-US",
+        "sku": "classroomlog-001",
+        "companyName": "<COMPANY_NAME>"
+      }
+    }
+  }
+}
