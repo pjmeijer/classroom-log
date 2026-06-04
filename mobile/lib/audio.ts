@@ -13,6 +13,11 @@ export function useRecorder(): AudioRecorder {
 }
 
 export async function startRecording(rec: AudioRecorder): Promise<void> {
+  // iOS requires the audio session to be enabled for recording before
+  // prepareToRecordAsync, or expo-audio throws RecordingDisabledException.
+  // playsInSilentMode is set so the physical silent switch doesn't block
+  // recording session activation.
+  await AudioModule.setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
   await rec.prepareToRecordAsync();
   rec.record();
 }

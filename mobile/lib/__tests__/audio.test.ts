@@ -33,6 +33,31 @@ describe('audio.ensurePermission', () => {
   });
 });
 
+describe('audio.startRecording', () => {
+  it('calls setAudioModeAsync({ allowsRecording: true }) before prepareToRecordAsync (iOS requires session enabled or RecordingDisabledException is thrown)', async () => {
+    const { AudioModule } = require('expo-audio');
+    AudioModule.setAudioModeAsync.mockClear();
+
+    const recorder: any = {
+      prepareToRecordAsync: jest.fn().mockResolvedValue(undefined),
+      record: jest.fn(),
+    };
+
+    const { startRecording } = require('../audio');
+    await startRecording(recorder);
+
+    expect(AudioModule.setAudioModeAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ allowsRecording: true })
+    );
+    expect(recorder.prepareToRecordAsync).toHaveBeenCalled();
+    expect(recorder.record).toHaveBeenCalled();
+
+    const modeOrder = AudioModule.setAudioModeAsync.mock.invocationCallOrder[0];
+    const prepareOrder = recorder.prepareToRecordAsync.mock.invocationCallOrder[0];
+    expect(modeOrder).toBeLessThan(prepareOrder);
+  });
+});
+
 describe('audio.cleanupOrphanRecordings', () => {
   it('deletes any pre-existing .m4a files in the cache dir', async () => {
     const FS = require('expo-file-system/legacy');
