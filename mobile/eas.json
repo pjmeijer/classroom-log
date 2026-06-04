@@ -10,19 +10,19 @@
         "autoIncrement": true
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "<RAILWAY_URL>"
+        "EXPO_PUBLIC_API_BASE_URL": "https://classroom-log-production.up.railway.app"
       }
     }
   },
   "submit": {
     "preview": {
       "ios": {
-        "appleId": "<APPLE_ID>",
-        "appleTeamId": "<APPLE_TEAM_ID>",
+        "appleId": "pjmeijer@me.com",
+        "appleTeamId": "458MN35W4F",
         "appName": "Classroom Log",
         "language": "en-US",
         "sku": "classroomlog-001",
-        "companyName": "<COMPANY_NAME>"
+        "companyName": "PER JOHAN MEIJER"
       }
     }
   }
