@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, Alert, Keyboard, Platform, type KeyboardEvent } from 'react-native';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -33,6 +33,30 @@ export default function NoteModal() {
   const pendingActionRef = useRef<unknown>(null);
   const recording = useCaptureStore(s => s.recording);
   const recordingInThisModal = recording?.studentId === studentId;
+  // Manual keyboard-height tracking. React Native's KeyboardAvoidingView
+  // does not compute the correct offset inside expo-router's
+  // `presentation: 'modal'` (iOS sheet) — keyboard frames are
+  // screen-relative but KAV measures from inside the modal, so
+  // behavior="padding" leaves the save button hidden. Tracking the
+  // height ourselves and applying it as paddingBottom on a wrapper
+  // around the modal content keeps the save button above the keyboard.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const onShow = (e: KeyboardEvent) => setKeyboardHeight(e.endCoordinates.height);
+    const onHide = () => setKeyboardHeight(0);
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      onShow,
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      onHide,
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -198,7 +222,7 @@ export default function NoteModal() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={{ flex: 1, paddingBottom: keyboardHeight }}>
         <View style={styles.header}>
           <Text style={styles.title}>{student?.name ?? copy.noteHeaderNote}</Text>
           <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'center' }}>
@@ -274,7 +298,7 @@ export default function NoteModal() {
           onDiscard={handleDiscard}
           onKeepEditing={() => setDiscardVisible(false)}
         />
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
