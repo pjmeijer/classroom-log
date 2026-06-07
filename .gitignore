@@ -44,3 +44,6 @@ mobile/android/
 # gbrain local artifacts (machine/worktree-local)
 .gbrain-source
 .sources/
+
+# Local dev sandbox (personal, not part of the app)
+docker-compose.yml
