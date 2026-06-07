@@ -41,3 +41,6 @@ Thumbs.db
 # Mobile build outputs
 mobile/ios/
 mobile/android/
+# gbrain local artifacts (machine/worktree-local)
+.gbrain-source
+.sources/
