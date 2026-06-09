@@ -1,0 +1,3 @@
+# simctl system log, iPhone 17 Pro / iOS 26.5, Release embedded bundle, <500ms after launch (pre-fix)
+ClassroomLog: (React) [com.facebook.react.log:javascript] [runtime not ready]: Error: Cannot find native module 'ExpoAsset'
+ClassroomLog: (React) [com.facebook.react.log:native] Unhandled JS Exception: [runtime not ready]: Error: Cannot find native module 'ExpoAsset'
