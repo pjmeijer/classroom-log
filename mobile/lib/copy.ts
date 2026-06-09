@@ -62,6 +62,7 @@ export const copy = {
 
   // Errors
   micDeniedSnack: 'Mikrofon deaktiveret — hold på en elev for at skrive i stedet.',
+  recordStartFailed: 'Kunne ikke starte optagelsen — prøv igen.',
   draftSavedToast: 'Gemt som kladde.',
   transcribeError: '(fejl under transskribering — tryk på noten for at prøve igen)',
   retryTranscription: 'Prøv igen',

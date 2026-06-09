@@ -64,6 +64,7 @@ export default function Home() {
     } catch (e) {
       await discardRecording(recorder);
       useCaptureStore.getState().cancel();
+      Alert.alert(copy.recordStartFailed);
     }
   }
 

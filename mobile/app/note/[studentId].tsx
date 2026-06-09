@@ -175,6 +175,7 @@ export default function NoteModal() {
     } catch {
       await discardRecording(recorder);
       useCaptureStore.getState().cancel();
+      Alert.alert(copy.recordStartFailed);
     }
   }
 
