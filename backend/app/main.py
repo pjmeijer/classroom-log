@@ -3,6 +3,7 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.routes.health import router as health_router
+from app.routes.privacy import router as privacy_router
 from app.routes.summary import router as summary_router
 from app.routes.transcribe import router as transcribe_router
 
@@ -34,5 +35,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 app.include_router(health_router)
+app.include_router(privacy_router)
 app.include_router(summary_router)
 app.include_router(transcribe_router)
