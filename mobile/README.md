@@ -23,6 +23,12 @@ npm run start:tunnel
 
 Scan the QR code with **App Store Expo Go** on your phone. The backend tunnel (ngrok) must be running separately — see the root README.
 
+> **Building for TestFlight?** The `npm start` flow above is for local
+> development against an ngrok backend. For the cloud build + TestFlight
+> distribution (EAS Build, pointing at the Railway backend), see
+> [Production & distribution](../README.md#production--distribution) in the
+> root README.
+
 ## Two tunnels, not one
 
 There are two independent ngrok tunnels in this setup. They confuse easily.
