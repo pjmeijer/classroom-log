@@ -8,18 +8,26 @@ Built as a two-piece demo: a React Native (Expo SDK 54) phone app and a FastAPI 
 
 ```
 ┌───────────────────────┐                  ┌──────────────────────────┐
-│  iPhone / Android     │                  │  Backend (your laptop)   │
-│  Expo Go              │   POST /transcribe   │  FastAPI + uvicorn        │
-│  - SQLite (local)     │ ───────────────► │  - /health                │
-│  - Roster, notes,     │   POST /summary  │  - /transcribe → OpenAI   │
-│    settings           │ ◄─────────────── │  - /summary    → Anthropic│
-└───────────────────────┘   (via ngrok)    └──────────────────────────┘
-                                                  │
+│  iPhone               │                  │  Backend                 │
+│  (TestFlight or       │  POST /transcribe│  FastAPI + uvicorn        │
+│   Expo Go in dev)     │ ───────────────► │  - /health                │
+│  - SQLite (local)     │  POST /summary   │  - /transcribe → OpenAI   │
+│  - Roster, notes,     │ ◄─────────────── │  - /summary    → Anthropic│
+│    settings           │                  │  - /privacy (policy page) │
+└───────────────────────┘                  └──────────────────────────┘
+   prod: Railway · dev: ngrok tunnel              │
                                                   ├─► api.openai.com (Whisper)
                                                   └─► api.anthropic.com (Claude)
 ```
 
 No cloud database. No accounts. The phone keeps the only persistent copy of notes; the backend is a thin pass-through that retains nothing after each request returns.
+
+**Backend URL.** In production the backend runs on **Railway** at
+`https://classroom-log-production.up.railway.app` — that's what the TestFlight
+build talks to (baked in at build time via `mobile/eas.json`). For **local
+development** you run the backend on your laptop and expose it with an **ngrok**
+tunnel (see "Run the backend"), then point the app at that tunnel via
+`mobile/.env` or the in-app Settings screen.
 
 ## Prerequisites
 
@@ -96,11 +104,38 @@ A QR code appears. Open **App Store Expo Go** on your phone and scan it. The app
 
 In the app:
 1. **Onboarding** — read the privacy disclosure, tap "Allow microphone", tap "Start using the app"
-2. **Settings** (gear icon top right) — paste the ngrok URL into Server, tap "Test connection" (should say "connected"), then add a few students
-3. **Home** — tap a student tile → modal opens → type a note → tap Save
+2. **Settings** (gear icon top right) — paste the backend URL into Server, tap "Test connection" (should say "connected"), then add a few students
+3. **Home** — **short-tap** a student tile to record a voice note (audio → Whisper → text appears on the note); **long-press** a tile to type a note instead
 4. **Generate Summary** (FAB bottom right) — pick a student, tap Generate, four sections render from Claude
 
-Voice capture lands in Task 14; today it's the text path only.
+> Note: voice recording does not work on the **iOS Simulator** (its audio
+> recorder fails to initialize); test voice on a real device or a TestFlight build.
+
+## Production & distribution
+
+**Backend (Railway).** The production backend is deployed on Railway at
+`https://classroom-log-production.up.railway.app` and redeploys from `main`.
+Sanity-check it any time:
+
+```
+curl https://classroom-log-production.up.railway.app/health   # {"ok":true,...}
+```
+
+**Mobile (EAS Build → TestFlight).** The iOS app is built in Expo's cloud and
+distributed via TestFlight. Config lives in `mobile/eas.json` (the `preview`
+profile bakes in the Railway URL as `EXPO_PUBLIC_API_BASE_URL`). From `mobile/`,
+with node 22 + `eas-cli`:
+
+```
+eas login
+eas build --platform ios --profile preview --auto-submit
+```
+
+This builds in the cloud (~15–25 min) and submits the result to App Store Connect
+→ TestFlight. `appVersionSource: remote` + `autoIncrement` means EAS bumps the
+build number for you. Privacy Policy URL for App Store Connect:
+`https://classroom-log-production.up.railway.app/privacy`
+(source of truth: `docs/privacy-policy.md` and `backend/app/routes/privacy.py`).
 
 ## Routes the backend exposes
 
@@ -109,6 +144,7 @@ Voice capture lands in Task 14; today it's the text path only.
 | GET    | `/health`    | Probe Anthropic + OpenAI key shape, return status |
 | POST   | `/transcribe`| Multipart audio file → Whisper → `{ text }`       |
 | POST   | `/summary`   | Note list → Claude → four structured sections     |
+| GET    | `/privacy`   | Bilingual (DA/EN) privacy policy page (HTML)      |
 
 All routes return a uniform error envelope on failure: `{ "error": { "code": "...", "message": "..." } }`.
 
@@ -119,11 +155,12 @@ classroom-log/
 ├── backend/                 # FastAPI proxy
 │   ├── app/
 │   │   ├── main.py          # FastAPI app + error handlers
-│   │   ├── routes/          # health, summary, transcribe
+│   │   ├── routes/          # health, summary, transcribe, privacy
 │   │   └── clients/         # Anthropic + OpenAI wrappers
 │   ├── tests/
 │   └── requirements.txt
 ├── mobile/                  # Expo SDK 54 React Native app
+│   ├── eas.json             # EAS Build / TestFlight config (preview profile)
 │   ├── app/                 # expo-router file-based routes
 │   │   ├── _layout.tsx      # SQLiteProvider + RouterGate + onboarding redirect
 │   │   ├── index.tsx        # Home (roster + today's notes + FAB)
@@ -136,9 +173,11 @@ classroom-log/
 │   ├── api/                 # client + summary wrapper + tests
 │   ├── lib/                 # theme, dates, audio, id
 │   └── __mocks__/           # jest manual mocks for native modules
-└── docs/superpowers/
-    ├── specs/               # design spec
-    └── plans/               # implementation plan + status
+└── docs/
+    ├── privacy-policy.md    # privacy policy (served at /privacy)
+    └── superpowers/
+        ├── specs/           # design spec
+        └── plans/           # implementation + EAS/TestFlight plans
 ```
 
 ## Test
@@ -155,11 +194,15 @@ Mobile (from `mobile/`):
 npm test
 ```
 
-Both should be green at every commit on `feat/v1-implementation`. The mobile test suite uses better-sqlite3 as a node-side SQLite for jest (the real `expo-sqlite` is a native module that doesn't run under jest-expo) — production still uses real `expo-sqlite` on the phone.
+Both should be green on `main`. The mobile test suite uses better-sqlite3 as a node-side SQLite for jest (the real `expo-sqlite` is a native module that doesn't run under jest-expo) — production still uses real `expo-sqlite` on the phone.
 
 ## Development status
 
-Currently on branch `feat/v1-implementation`. Tasks 0–11 and 13 are complete; tasks 12 (manual smoke), 14 (voice wiring), 15 (real health pill), 16 (move/edit notes), 17 (docs), 18 (final review) are next. See `docs/superpowers/plans/2026-05-26-classroom-log-v1.md` for the full plan.
+V1 is feature-complete and on `main`: text + **voice** capture, daily summaries,
+local SQLite storage, and the FastAPI proxy are all wired. The backend is live on
+Railway and the iOS app is in **TestFlight** (EAS Build pipeline — see "Production
+& distribution"). See `docs/superpowers/plans/` for the original implementation
+plan and the EAS/TestFlight pipeline plan.
 
 ## License
 
