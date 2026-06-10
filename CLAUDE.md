@@ -1,3 +1,24 @@
+# classroom-log — project instructions
+
+## Documentation conventions
+
+**At every major milestone, refresh the docs so they stay accurate.** A "major
+milestone" = a feature reaching `main`, a release / TestFlight build, or a
+meaningful architecture or data-handling change. When one happens:
+
+- **`docs/superpowers/README.md`** (the archive index) — add a row for the new
+  feature's spec/plan, or update its status. This is the map of *what was built
+  and why*; keep it current so the folder reads as a deliberate archive.
+- **Root `README.md`** — update if the change touches setup, run, deploy, the
+  routes table, or the architecture diagram.
+- **`docs/privacy-policy.md` + `backend/app/routes/privacy.py`** — keep the two in
+  sync whenever data handling changes (the route is served live at `/privacy`).
+
+Keep the design specs/plans under `docs/superpowers/` as historical snapshots —
+**archive, don't delete** (they're the design rationale and gbrain search fuel).
+
+---
+
 ## GBrain Configuration (configured by /setup-gbrain)
 - Mode: local-stdio
 - Engine: pglite
