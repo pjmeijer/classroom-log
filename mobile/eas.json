@@ -1,0 +1,29 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "store",
+      "ios": {
+        "autoIncrement": true
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://classroom-log-production.up.railway.app"
+      }
+    }
+  },
+  "submit": {
+    "preview": {
+      "ios": {
+        "appleId": "pjmeijer@me.com",
+        "appleTeamId": "458MN35W4F",
+        "appName": "Classroom Log",
+        "language": "en-US",
+        "sku": "classroomlog-001",
+        "companyName": "PER JOHAN MEIJER"
+      }
+    }
+  }
+}

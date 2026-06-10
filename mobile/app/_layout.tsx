@@ -47,14 +47,16 @@ function RouterGate({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     SourceSerif4_600SemiBold,
     SourceSerif4_400Regular_Italic,
     SourceSans3_400Regular,
     SourceSans3_600SemiBold,
   });
 
-  if (!fontsLoaded) return null;
+  // Keep the splash up while fonts are loading. If they fail to load, fall
+  // through and render with system fonts rather than hanging on the splash.
+  if (!fontsLoaded && !fontError) return null;
 
   return (
     <SQLiteProvider databaseName="classroom-log.db" onInit={onDbInit}>

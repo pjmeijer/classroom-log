@@ -26,6 +26,9 @@ Thumbs.db
 # gstack scratch (codex prompts, design mockups, etc.)
 .gstack/
 
+# gbrain federated source worktrees (machine-local; .gbrain-source pin IS tracked)
+.sources/
+
 # Claude Code internals (worktrees, transcripts)
 .claude/
 
